@@ -13,9 +13,8 @@
 
 На интерфейсе включить xml-rpc.
 
-Файл для Linux - <b>ug_users_list</b>
+<p>Файл для Linux - <b>ug_users_list</b>
 Перед использованием сделать исполняемым.
-
-Файл для Windows - <b>ug_users_list.exe</b>
+Файл для Windows - <b>ug_users_list.exe</b></p>
 
 
