@@ -482,4 +482,76 @@ class UtmXmlRpc:
         else:
             return 0, result     # Возвращает True
 
+################################### Пользователи и устройства #####################################
+    def get_groups_list(self):
+        """Получить список локальных групп"""
+        try:
+            result = self._server.v3.accounts.groups.list(self._auth_token, 0, 1000, {})
+        except rpc.Fault as err:
+            print(f"\tОшибка get_groups_list: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result['items']), result['items']
+
+    def add_group(self, group):
+        """Добавить локальную группу"""
+        try:
+            result = self._server.v3.accounts.group.add(self._auth_token, group)
+        except rpc.Fault as err:
+            if err.faultCode == 409:
+                return 1, f"\tГруппа '{group['name']}' уже существует. Проверка параметров..."
+            else:
+                return 2, f"\tОшибка add_group: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает GUID добавленной группы
+
+    def update_group(self, group):
+        """Обновить локальную группу"""
+        try:
+            result = self._server.v3.accounts.group.update(self._auth_token, group['guid'], group)
+        except TypeError as err:
+            return 2, err
+        except rpc.Fault as err:
+            return 1, f"\tОшибка update_group: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
+    def get_users_list(self):
+        """Получить список локальных пользователей"""
+        try:
+            result = self._server.v3.accounts.users.list(self._auth_token, 0, 1000, {})
+        except rpc.Fault as err:
+            print(f"\tОшибка get_users_list: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result['items']), result['items']
+
+    def add_user(self, user):
+        """Добавить локального пользователя"""
+        try:
+            result = self._server.v3.accounts.user.add(self._auth_token, user)
+        except rpc.Fault as err:
+            if err.faultCode == 5002:
+                return 1, f"\tПользователь '{user['name']}' уже существует. Проверка параметров..."
+            else:
+                return 2, f"\tОшибка add_user: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает GUID добавленного пользователя
+
+    def update_user(self, user):
+        """Обновить локального пользователя"""
+        try:
+            result = self._server.v3.accounts.user.update(self._auth_token, user['guid'], user)
+        except rpc.Fault as err:
+            return 1, f"\tОшибка utm.update_user: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
+    def add_user_in_group(self, group_guid, user_guid):
+        """Добавить локального пользователя в локальную группу"""
+        try:
+            result = self._server.v3.accounts.group.user.add(self._auth_token, group_guid, user_guid)
+        except rpc.Fault as err:
+            return 2, f"\t\tОшибка add_user: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает true
+
 class UtmError(Exception): pass

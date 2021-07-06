@@ -12,23 +12,27 @@ from utm import UtmXmlRpc, UtmError
 class UTM(UtmXmlRpc):
     def __init__(self, server_ip, login, password):
         super().__init__(server_ip, login, password)
-        self._categories = {}         # Список Категорий URL
-        self.zones = {}               # Список зон {name: id}
-        self.services = {}            # Список сервисов раздела библиотеки {name: id}
-        self.shaper = {}              # Список полос пропускания раздела библиотеки {name: id}
-        self.list_morph = {}          # Списки морфлолгии раздела библиотеки {name: id}
-        self.list_IP = {}             # Списки IP-адресов раздела библиотеки  {name: id}
-        self.list_useragent = {}      # Списки UserAgent раздела библиотеки  {name: id}
-        self.list_mime = {}           # Списки mime групп типов контента раздела библиотеки  {name: id}
-        self.list_url = {}            # Списки URL раздела библиотеки  {name: id}
-        self.list_calendar = {}       # Списки календарей раздела библиотеки  {name: id}
-        self.list_scada = {}          # Списки профилей АСУ ТП раздела библиотеки  {name: id}
-        self.list_templates = {}      # Списки шаблонов страниц раздела библиотеки  {name: id}
-        self.l7_categories = {}       # Список L7 категорий
-        self.l7_apps = {}             # Список L7 приложений
-        self.list_notifications = {}  # Список профилей оповещения {name: id}
-        self.list_netflow = {}        # Список профилей netflow {name: id}
-        self.list_ssl_profiles = {}   # Список профилей ssl {name: id}
+        self._categories = {}           # Список Категорий URL
+        self.zones = {}                 # Список зон {name: id}
+        self.services = {}              # Список сервисов раздела библиотеки {name: id}
+        self.shaper = {}                # Список полос пропускания раздела библиотеки {name: id}
+        self.list_morph = {}            # Списки морфлолгии раздела библиотеки {name: id}
+        self.list_IP = {}               # Списки IP-адресов раздела библиотеки  {name: id}
+        self.list_useragent = {}        # Списки UserAgent раздела библиотеки  {name: id}
+        self.list_mime = {}             # Списки mime групп типов контента раздела библиотеки  {name: id}
+        self.list_url = {}              # Списки URL раздела библиотеки  {name: id}
+        self.list_calendar = {}         # Списки календарей раздела библиотеки  {name: id}
+        self.list_scada = {}            # Списки профилей АСУ ТП раздела библиотеки  {name: id}
+        self.list_templates = {}        # Списки шаблонов страниц раздела библиотеки  {name: id}
+        self.list_urlcategorygroup = {} # Список групп категорий URL раздела библиотеки  {name: id}
+        self.list_applicationgroup = {} # Список групп приложений раздела библиотеки  {name: id}
+        self.l7_categories = {}         # Список L7 категорий
+        self.l7_apps = {}               # Список L7 приложений
+        self.list_notifications = {}    # Список профилей оповещения {name: id}
+        self.list_netflow = {}          # Список профилей netflow {name: id}
+        self.list_ssl_profiles = {}     # Список профилей ssl {name: id}
+        self.list_groups = {}           # Список локальных групп {name: guid}
+        self.list_users = {}            # Список локальных пользователей {name: guid}
         self._connect()
 
     def init_struct_for_export(self):
@@ -45,6 +49,9 @@ class UTM(UtmXmlRpc):
             else:
                 result = self._server.v2.core.get.l7apps(self._auth_token, 0, 10000, '')
             self.l7_apps = {x['id'] if 'id' in x.keys() else x['app_id']: x['name'] for x in result['items'] if result['count']}
+
+            result = self._server.v3.accounts.groups.list(self._auth_token, 0, 1000, {})
+            self.list_groups = {x['guid']: x['name'] for x in result['items'] if result['total']}
             
         except rpc.Fault as err:
             print(f"\033[31mОшибка ug_convert_config/init_struct_for_export(): [{err.faultCode}] {err.faultString}\033[0m")
@@ -76,6 +83,12 @@ class UTM(UtmXmlRpc):
             result = self._server.v2.nlists.list(self._auth_token, 'timerestrictiongroup', 0, 1000, {})
             self.list_calendar = {x['name']: x['id'] for x in result['items'] if result['count']}
 
+            result = self._server.v2.nlists.list(self._auth_token, 'urlcategorygroup', 0, 1000, {})
+            self.list_urlcategorygroup = {x['name']: x['id'] for x in result['items'] if result['count']}
+
+            result = self._server.v2.nlists.list(self._auth_token, 'applicationgroup', 0, 1000, {})
+            self.list_applicationgroup = {x['name']: x['id'] for x in result['items'] if result['count']}
+
             result = self._server.v2.core.get.l7categories(self._auth_token, 0, 10000, '')
             self.l7_categories = {x['name']: x['id'] for x in result['items'] if result['count']}
             
@@ -94,6 +107,9 @@ class UTM(UtmXmlRpc):
             result = self._server.v1.content.ssl.profiles.list(self._auth_token, 0, 100, {})
             self.list_ssl_profiles = {x['name']: x['id'] for x in result['items'] if result['count']}
 
+            result = self._server.v3.accounts.groups.list(self._auth_token, 0, 1000, {})
+            self.list_groups = {x['name']: x['guid'] for x in result['items'] if result['total']}
+
         except rpc.Fault as err:
             print(f"\033[31mОшибка ug_convert_config/init_struct_for_import(): [{err.faultCode}] {err.faultString}\033[0m")
 
@@ -108,6 +124,13 @@ class UTM(UtmXmlRpc):
 
         total, data = self.get_templates_list()
         self.list_templates = {x['name']: x['id'] for x in data if total}
+
+        total, data = self.get_users_list()
+        self.list_users = {x['name']: x['guid'] for x in data if total}
+
+    def init_struct(self):
+        """Заполнить служебные структуры данных. Применяется при экспорте и импорте."""
+        pass
         
 ################### Библиотеки ################################
     def export_morphology_lists(self):
@@ -173,6 +196,7 @@ class UTM(UtmXmlRpc):
                             err2, result2 = self.add_nlist_item(result, item)
                             if err2 != 0:
                                 print(result2)
+                        self.list_morph[morph_list['name']] = result
                         print(f"\tДобавлен список морфологии: '{morph_list['name']}'.")
             else:
                 print("\t\033[33mНет списков морфологии для импорта.\033[0m")
@@ -215,6 +239,7 @@ class UTM(UtmXmlRpc):
             elif err == 2:
                 print(result)
             else:
+                self.sevices[item['name']] = result
                 print(f"\tСервис '{item['name']}' добавлен.")
 
     def export_IP_lists(self):
@@ -274,6 +299,7 @@ class UTM(UtmXmlRpc):
                             err2, result2 = self.add_nlist_item(result, item)
                             if err2 != 0:
                                 print(result2)
+                        self.list_IP[ip_list['name']] = result
                         print(f"\tДобавлен список IP-адресов: '{ip_list['name']}'.")
             else:
                 print("\033[33m\tНет списков IP-адресов для импорта.\033[0m")
@@ -337,6 +363,7 @@ class UTM(UtmXmlRpc):
                             err2, result2 = self.add_nlist_item(result, item)
                             if err2 != 0:
                                 print(result2)
+                        self.list_useragent[useragent_list['name']] = result
                         print(f"\tДобавлен список Useragent: '{useragent_list['name']}'.")
             else:
                 print("\033[33m\tНет списков Useragent для импорта.\033[0m")
@@ -400,6 +427,7 @@ class UTM(UtmXmlRpc):
                             err2, result2 = self.add_nlist_item(result, item)
                             if err2 != 0:
                                 print(result2)
+                        self.list_mime[mime_list['name']] = result
                         print(f"\tДобавлен список Типов контента: '{mime_list['name']}'.")
             else:
                 print("\033[33m\tНет списков Типа контента для импорта.\033[0m")
@@ -463,6 +491,7 @@ class UTM(UtmXmlRpc):
                             err2, result2 = self.add_nlist_item(result, item)
                             if err2 != 0:
                                 print(result2)
+                        self.list_url[url_list['name']] = result
                         print(f"\tДобавлен список URL: '{url_list['name']}'.")
             else:
                 print("\033[33m\tНет списков URL для импорта.\033[0m")
@@ -529,6 +558,7 @@ class UTM(UtmXmlRpc):
                             err2, result2 = self.add_nlist_item(result, item)
                             if err2 != 0:
                                 print(result2)
+                        self.list_calendar[cal_list['name']] = result
                         print(f"\tДобавлен элемент календаря: '{cal_list['name']}'.")
             else:
                 print("\033[33m\tНет списков Календарей для импорта.\033[0m")
@@ -570,6 +600,7 @@ class UTM(UtmXmlRpc):
             elif err == 2:
                 print(result)
             else:
+                self.shaper[item['name']] = result
                 print(f'\tПолоса пропускания "{item["name"]}" добавлена.')
 
     def export_scada_list(self):
@@ -606,6 +637,7 @@ class UTM(UtmXmlRpc):
             elif err == 2:
                 print(result)
             else:
+                self.list_scada[item['name']] = result
                 print(f'\tПрофиль АСУ ТП "{item["name"]}" добавлен.')
 
     def export_templates_list(self):
@@ -668,6 +700,7 @@ class UTM(UtmXmlRpc):
             elif err == 2:
                 print(result)
             else:
+                self.list_templates[item['name']] = result
                 print(f'\tШаблон страницы "{item["name"]}" добавлен.')
                 if f"{item['name']}.html" in html_files:
                     with open(f"data/templates/{item['name']}.html", "br") as fh:
@@ -730,6 +763,7 @@ class UTM(UtmXmlRpc):
                 elif err == 2:
                     print(result)
                 else:
+                    self.list_urlcategorygroup[item['name']] = result
                     print(f'\tГруппа URL категорий "{item["name"]}" добавлена.')
                     for category in content:
                         try:
@@ -780,6 +814,7 @@ class UTM(UtmXmlRpc):
             elif err == 2:
                 print(result)
             else:
+                self.list_applicationgroup[item['name']] = result
                 print(f'\tГруппа приложений "{item["name"]}" добавлена.')
                 for app in content:
                     try:
@@ -940,6 +975,7 @@ class UTM(UtmXmlRpc):
             elif err == 2:
                 print(result)
             else:
+                self.list_notifications[item['name']] = result
                 print(f'\tПрофиль оповещения "{item["name"]}" добавлен.')
 
     def export_netflow_profiles_list(self):
@@ -976,6 +1012,7 @@ class UTM(UtmXmlRpc):
             elif err == 2:
                 print(result)
             else:
+                self.list_netflow[item['name']] = result
                 print(f'\tПрофиль netflow "{item["name"]}" добавлен.')
 
     def export_ssl_profiles_list(self):
@@ -1014,7 +1051,104 @@ class UTM(UtmXmlRpc):
                 elif err == 2:
                     print(result)
                 else:
+                    self.list_ssl_profiles[item['name']] = result
                     print(f'\tПрофиль SSL "{item["name"]}" добавлен.')
+
+################### Пользователи и устройства ################################
+    def export_groups_lists(self):
+        """Выгружает список групп"""
+        print('Выгружается список локальных групп раздела "Пользователи и устройства":')
+        if not os.path.isdir('data/users_and_devices'):
+            os.mkdir('data/users_and_devices')
+
+        _, data = self.get_groups_list()
+
+        for item in data:
+            item.pop('guid')
+            item.pop('cc', None)
+        with open(f"data/users_and_devices/config_groups.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f"\tСписок локальных групп выгружен в файл data/users_and_devices/config_groups.json")
+
+    def import_groups_list(self):
+        """Импортировать локальные группы"""
+        print('Импорт списка локальных групп раздела "Пользователи и устройства":')
+        try:
+            with open("data/users_and_devices/config_groups.json", "r") as fh:
+                groups = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок локальных групп не импортирован!\n\tНе найден файл "data/users_and_devices/config_groups.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        for item in groups:
+            err, result = self.add_group(item)
+            if err == 1:
+                print(result, end= ' - ')
+                item['guid'] = self.list_groups[item['name']]
+                err1, result1 = self.update_group(item)
+                if err1 != 0:
+                    print("\n", f"\033[31m{result1}\033[0m")
+                else:
+                    print("\033[32mOk!\033[0;0m")
+            elif err == 2:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                self.list_groups[item['name']] = result
+                print(f'\tЛокальная группа "{item["name"]}" добавлена.')
+
+    def export_users_lists(self):
+        """Выгружает список локальных пользователей"""
+        print('Выгружается список локальных пользователей раздела "Пользователи и устройства":')
+        if not os.path.isdir('data/users_and_devices'):
+            os.mkdir('data/users_and_devices')
+
+        _, data = self.get_users_list()
+
+        for item in data:
+            item.pop('guid')
+            item.pop('creation_date')
+            item.pop('expiration_date')
+            item.pop('cc', None)
+            if not item['first_name']:
+                item['first_name'] = ""
+            if not item['last_name']:
+                item['last_name'] = ""
+            item['groups'] = [self.list_groups[guid] for guid in item['groups']]
+        with open(f"data/users_and_devices/config_users.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f"\tСписок локальных пользователей выгружен в файл data/users_and_devices/config_users.json")
+
+    def import_users_list(self):
+        """Импортировать список локальных пользователей"""
+        print('Импорт списка локальных пользователей раздела "Пользователи и устройства":')
+        try:
+            with open("data/users_and_devices/config_users.json", "r") as fh:
+                users = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок локальных пользователей не импортирован!\n\tНе найден файл "data/users_and_devices/config_users.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        for item in users:
+            item['groups'] = [self.list_groups[name] for name in item['groups']]
+            err, result = self.add_user(item)
+            if err == 1:
+                print(result, end= ' - ')
+                item['guid'] = self.list_users[item['name']]
+                err1, result1 = self.update_user(item)
+                if err1 != 0:
+                    print("\n", f"\033[31m{result1}\033[0m")
+                else:
+                    print("\033[32mOk!\033[0;0m")
+            elif err == 2:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                self.list_users[item['name']] = result
+                item['guid'] = result
+                print(f'\tЛокальный пользователь "{item["name"]}" добавлен.')
+            for group_guid in item['groups']:
+                err2, result2 = self.add_user_in_group(group_guid, item['guid'])
+                if err2 != 0:
+                    print("\n", f"\033[31m{result2}\033[0m")
 
 ################### ZONES #####################################
     def export_zones_list(self):
@@ -1285,7 +1419,11 @@ def menu3(utm, mode, section):
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
         elif section == 3:
-            pass
+            print("1  - Экспортировать список локальных групп.")
+            print("2  - Экспортировать список локальных пользователей.")
+            print('\033[36m99  - Экспортировать всё.\033[0m')
+            print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
+            print("\033[33m0   - Выход.\033[0m")
     else:
         if section == 1:
             print("1  - Импортировать списки морфологии.")
@@ -1318,7 +1456,11 @@ def menu3(utm, mode, section):
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
         elif section == 3:
-            pass
+            print("1  - Импортировать список локальных групп.")
+            print("2  - Импортировать список локальных пользователей.")
+            print('\033[36m99  - Импортировать всё.\033[0m')
+            print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
+            print("\033[33m0   - Выход.\033[0m")
 
     while True:
         try:
@@ -1363,10 +1505,8 @@ def main():
             if section != 999:
                 break
 
-#        print(command)
         command = section * 100 + command
-#        print(command)
-#        exit()
+        utm.init_struct()
         if mode ==1:
             if not os.path.isdir('data'):
                 os.mkdir('data')
@@ -1437,6 +1577,13 @@ def main():
                 elif command == 299:
                     utm.export_zones_list()
                     utm.export_dhcp_subnets()
+                elif command == 301:
+                    utm.export_groups_lists()
+                elif command == 302:
+                    utm.export_users_lists()
+                elif command == 399:
+                    utm.export_groups_lists()
+                    utm.export_users_lists()
                 elif command == 9999:
                     utm.export_morphology_lists()
                     utm.export_services_list()
@@ -1458,10 +1605,12 @@ def main():
                     utm.export_ssl_profiles_list()
                     utm.export_zones_list()
                     utm.export_dhcp_subnets()
+                    utm.export_groups_lists()
+                    utm.export_users_lists()
             except UtmError as err:
                 print(err)
             except Exception as err:
-                print(f'\n\033[31mОшибка ug_convert_config: {err} (Node: {server_ip}).\033[0m')
+                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
             finally:
                 utm.logout()
                 print("\033[32mЭкспорт конфигурации завершён.\033[0m\n")
@@ -1533,6 +1682,13 @@ def main():
                     elif command == 299:
                         utm.import_zones()
                         utm.import_dhcp_subnets()
+                    elif command == 301:
+                        utm.import_groups_list()
+                    elif command == 302:
+                        utm.import_users_list()
+                    elif command == 399:
+                        utm.import_groups_list()
+                        utm.import_users_list()
                     elif command == 9999:
                         utm.import_morphology()
                         utm.import_services()
@@ -1554,10 +1710,12 @@ def main():
                         utm.import_ssl_profiles()
                         utm.import_zones()
                         utm.import_dhcp_subnets()
+                        utm.import_groups_list()
+                        utm.import_users_list()
                 except UtmError as err:
                     print(err)
                 except Exception as err:
-                    print(f'\n\033[31mОшибка ug_convert_config: {err} (Node: {server_ip}).\033[0m')
+                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
                 finally:
                     utm.logout()
                     print("\033[32mИмпорт конфигурации завершён.\033[0m\n")
