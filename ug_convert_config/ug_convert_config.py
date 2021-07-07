@@ -1054,6 +1054,108 @@ class UTM(UtmXmlRpc):
                     self.list_ssl_profiles[item['name']] = result
                     print(f'\tПрофиль SSL "{item["name"]}" добавлен.')
 
+################### Настройки ################################################
+    def export_ntp(self):
+        """Выгрузить настройки NTP"""
+        print('Выгружаются "Настройки NTP" раздела "Настройки":')
+        if not os.path.isdir('data/settings'):
+            os.mkdir('data/settings')
+
+        _, data = self.get_ntp_config()
+        if data:
+            data.pop('local_time', None)
+            data.pop('timezone', None)
+            data.pop('utc_time', None)
+        with open("data/settings/config_ntp.json", "w") as fh:
+            json.dump(data, fh, indent=4, ensure_ascii=False)
+        print(f'\tНастройки NTP выгружены в файл "data/settings/config_ntp.json".')
+
+    def import_ntp(self):
+        """Импортировать настройки NTP"""
+        print('Импорт настроек NTP раздела "Настройки":')
+        try:
+            with open("data/settings/config_ntp.json", "r") as fh:
+                ntp = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mНастройки NTP не импортированы!\n\tНе найден файл "data/settings/config_ntp.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        err, result = self.add_ntp_config(ntp)
+        if err == 2:
+            print(f"\033[31m{result}\033[0m")
+        else:
+            print(f'\tНастройки NTP обновлены.')
+
+    def export_settings(self):
+        """Выгрузить настройки"""
+        print('Выгружаются настройки кэширования HTTP и модулей раздела "Настройки":')
+        if not os.path.isdir('data/settings'):
+            os.mkdir('data/settings')
+
+        params = ["auth_captive", "logout_captive", "block_page_domain", "ftpclient_captive",
+                  "ftp_proxy_enabled", "http_cache_mode", "http_cache_docsize_max", "http_cache_precache_size"]
+        _, data = self.get_settings_params(params)
+        with open("data/settings/config_settings.json", "w") as fh:
+            json.dump(data, fh, indent=4, ensure_ascii=False)
+        print(f'\tНастройки кэширования HTTP и модулей выгружены в файл "data/settings/config_settings.json".')
+
+        _, data = self.get_proxy_port()
+        if data:
+            with open("data/settings/config_proxy_port.json", "w") as fh:
+                json.dump(data, fh, indent=4, ensure_ascii=False)
+
+        _, data = self.get_nlist_list('httpcwl')
+        for content in data['content']:
+            content.pop('id')
+        with open("data/settings/config_proxy_exceptions.json", "w") as fd:
+            json.dump(data['content'], fd, indent=4, ensure_ascii=False)
+        print(f'\tИсключения кеширования http выгружены в файл data/settings/config_proxy_exceptions.json')
+
+    def import_settings(self):
+        """Импортировать настройки"""
+        print('Импорт настроек кэширования HTTP и модулей раздела "Настройки":')
+        try:
+            with open("data/settings/config_proxy_port.json", "r") as fh:
+                port = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mПорт прокси не импортирован!\n\tНе найден файл "data/settings/config_proxy_port.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        err, result = self.set_proxy_port(port)
+        if err == 2:
+            print(f"\033[31m{result}\033[0m")
+        else:
+            print(f'\tHTTP(S)-прокси порт обновлён.')
+
+        try:
+            with open("data/settings/config_settings.json", "r") as fh:
+                settings = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mНастройки кэширования HTTP и модулей не импортированы!\n\tНе найден файл "data/settings/config_settings.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        for key, value in settings.items():
+            err, result = self.set_settings_param(key, value)
+            if err == 2:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                print(f'\tПараметр {key} обновлён.')
+
+        try:
+            with open("data/settings/config_proxy_exceptions.json", "r") as fh:
+                settings = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mИсключения кеширования http не импортированы!\n\tНе найден файл "data/settings/config_proxy_exceptions.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        _, data = self.get_nlist_list('httpcwl')
+        for item in settings:
+            err, result = self.add_nlist_item(data['id'], item)
+            if err != 0:
+                print(f'\t{result}')
+            else:
+                print(f'\tВ исключения кеширования добавлен URL: "{item["value"]}".')
+
 ################### Пользователи и устройства ################################
     def export_groups_lists(self):
         """Выгружает список групп"""
@@ -1364,7 +1466,8 @@ def menu2(mode):
     print(f"Выберите раздел для {'экспорта' if mode == 1 else 'импорта'}.\n")
     print("1   - Библиотека")
     print("2   - Сеть")
-    print("3   - Пользователи и устройства")
+    print("3   - Настройки")
+    print("4   - Пользователи и устройства")
     print("\033[36m99  - Выбрать всё.\033[0m")
     print("\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m")
     print("\033[33m0   - Выход.\033[0m")
@@ -1419,6 +1522,12 @@ def menu3(utm, mode, section):
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
         elif section == 3:
+            print('1  - Экспортировать настройки NTP раздела "Настройки".')
+            print('2  - Экспортировать настройки Модулей и кэширования HTTP раздела "Настройки".')
+            print('\033[36m99  - Экспортировать всё.\033[0m')
+            print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
+            print("\033[33m0   - Выход.\033[0m")
+        elif section == 4:
             print("1  - Экспортировать список локальных групп.")
             print("2  - Экспортировать список локальных пользователей.")
             print('\033[36m99  - Экспортировать всё.\033[0m')
@@ -1456,6 +1565,12 @@ def menu3(utm, mode, section):
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
         elif section == 3:
+            print("1  - Импортировать настройки NTP.")
+            print('2  - Импортировать настройки Модулей и кэширования HTTP раздела "Настройки".')
+            print('\033[36m99  - Импортировать всё.\033[0m')
+            print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
+            print("\033[33m0   - Выход.\033[0m")
+        elif section == 4:
             print("1  - Импортировать список локальных групп.")
             print("2  - Импортировать список локальных пользователей.")
             print('\033[36m99  - Импортировать всё.\033[0m')
@@ -1568,6 +1683,7 @@ def main():
                     utm.export_notification_profiles_list()
                     utm.export_netflow_profiles_list()
                     utm.export_ssl_profiles_list()
+
                 elif command == 201:
                     utm.export_zones_list()
 #                elif command == 202:
@@ -1577,13 +1693,23 @@ def main():
                 elif command == 299:
                     utm.export_zones_list()
                     utm.export_dhcp_subnets()
+
                 elif command == 301:
-                    utm.export_groups_lists()
+                    utm.export_ntp()
                 elif command == 302:
-                    utm.export_users_lists()
+                    utm.export_settings()
                 elif command == 399:
+                    utm.export_ntp()
+                    utm.export_settings()
+
+                elif command == 401:
+                    utm.export_groups_lists()
+                elif command == 402:
+                    utm.export_users_lists()
+                elif command == 499:
                     utm.export_groups_lists()
                     utm.export_users_lists()
+
                 elif command == 9999:
                     utm.export_morphology_lists()
                     utm.export_services_list()
@@ -1605,6 +1731,8 @@ def main():
                     utm.export_ssl_profiles_list()
                     utm.export_zones_list()
                     utm.export_dhcp_subnets()
+                    utm.export_ntp()
+                    utm.export_settings()
                     utm.export_groups_lists()
                     utm.export_users_lists()
             except UtmError as err:
@@ -1682,11 +1810,20 @@ def main():
                     elif command == 299:
                         utm.import_zones()
                         utm.import_dhcp_subnets()
+
                     elif command == 301:
-                        utm.import_groups_list()
+                        utm.import_ntp()
                     elif command == 302:
-                        utm.import_users_list()
+                        utm.import_settings()
                     elif command == 399:
+                        utm.import_ntp()
+                        utm.import_settings()
+
+                    elif command == 401:
+                        utm.import_groups_list()
+                    elif command == 402:
+                        utm.import_users_list()
+                    elif command == 499:
                         utm.import_groups_list()
                         utm.import_users_list()
                     elif command == 9999:
@@ -1710,6 +1847,8 @@ def main():
                         utm.import_ssl_profiles()
                         utm.import_zones()
                         utm.import_dhcp_subnets()
+                        utm.import_ntp()
+                        utm.import_settings()
                         utm.import_groups_list()
                         utm.import_users_list()
                 except UtmError as err:

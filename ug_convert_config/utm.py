@@ -51,6 +51,62 @@ class UtmXmlRpc:
             if err.faultCode == 104:
                 print('Сессия завершилась по таймауту.')
 
+################################### Settings ####################################
+    def get_ntp_config(self):
+        """Получить конфигурацию NTP"""
+        try:
+            result = self._server.v2.settings.time.get(self._auth_token)
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_ntp_config: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result), result
+
+    def add_ntp_config(self, ntp):
+        """Обновить конфигурацию NTP"""
+        try:
+            result = self._server.v2.settings.time.set(self._auth_token, ntp)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_ntp_config: [{err.faultCode}] — {err.faultString}"
+        return 0, result
+
+    def get_settings_params(self, params):
+        """
+        Получить несколько параметров за 1 запрос.
+        params - list of params
+        Возвращает dict
+        """
+        try:
+            result = self._server.v2.settings.get.params(self._auth_token, params)
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_settings_params: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result), result
+
+    def set_settings_param(self, param_name, param_value):
+        """Изменить порт прокси"""
+        try:
+            result = self._server.v2.settings.set.param(self._auth_token, param_name, param_value)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.set_settings_param: [{err.faultCode}] — {err.faultString}"
+        return 0, result  # Возвращает True
+
+    def get_proxy_port(self):
+        """Получить порт прокси"""
+        try:
+            result = self._server.v2.settings.proxy.port.get(self._auth_token)
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_proxy_port: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return 0, result  # Возвращает номер порта
+
+    def set_proxy_port(self, port):
+        """Изменить порт прокси"""
+        try:
+            result = self._server.v2.settings.proxy.port.set(self._auth_token, port)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.set_proxy_port: [{err.faultCode}] — {err.faultString}"
+        return 0, result  # Возвращает True
+
 ##################################### ZONES #####################################
     def get_zones_list(self):
         """Получить список зон"""
@@ -146,9 +202,13 @@ class UtmXmlRpc:
                         content = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 1000, {}, [])
                     else:
                         content = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 1000, '', [])
-                    item['content'] = [x for x in content['items']]
                     if list_type == 'timerestrictiongroup' and self.version.startswith('5'):
                         item['content'] = [x['value'] for x in content['items']]
+                    elif list_type == 'httpcwl':
+                        array = {'id': item['id'], 'content': [x for x in content['items']]}
+                        break
+                    else:
+                        item['content'] = [x for x in content['items']]
                     array.append(item)
         except rpc.Fault as err:
             print(f"Ошибка get_namedlist_list: [{err.faultCode}] — {err.faultString}")
@@ -193,7 +253,7 @@ class UtmXmlRpc:
             if err.faultCode == 2001:
                 return 1, f"\tСодержимое: {item} не будет добавлено, так как уже существует."
             else:
-                return 2, f"Ошибка add_nlist_item: [{err.faultCode}] — {err.faultString}"
+                return 2, f"Ошибка utm.add_nlist_item: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result
 
