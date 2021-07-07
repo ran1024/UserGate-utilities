@@ -287,8 +287,6 @@ class UtmXmlRpc:
         """Обновить отдельный сервис раздела Библиотеки"""
         try:
             result = self._server.v1.libraries.service.update(self._auth_token, service_id, service)
-        except TypeError as err:
-            return 2, err
         except rpc.Fault as err:
             if err.faultCode == 404:
                 return 1, f"\tНе удалось обновить сервис '{service['name']}' c id: {service_id}. Данный сервис не найден."

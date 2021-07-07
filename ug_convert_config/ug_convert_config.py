@@ -231,11 +231,15 @@ class UTM(UtmXmlRpc):
             err, result = self.add_service(item)
             if err == 1:
                 print(result, end= ' - ')
-                err1, result1 = self.update_service(self.services[item['name']], item)
-                if err1 != 0:
-                    print(result1)
+                try:
+                    err1, result1 = self.update_service(self.services[item['name']], item)
+                except KeyError as keyerr:
+                    print(f"\n\t\t\033[31mService {keyerr} not updated.\n\t\tУстановите последнее обновление на UTM и повторите попытку.\033[0m")
                 else:
-                    print("\033[32mOk!\033[0;0m")
+                    if err1 != 0:
+                        print(result1)
+                    else:
+                        print("\033[32mOk!\033[0;0m")
             elif err == 2:
                 print(result)
             else:
