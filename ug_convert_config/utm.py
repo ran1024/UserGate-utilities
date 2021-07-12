@@ -83,7 +83,7 @@ class UtmXmlRpc:
         return len(result), result
 
     def set_settings_param(self, param_name, param_value):
-        """Изменить порт прокси"""
+        """Изменить параметр"""
         try:
             result = self._server.v2.settings.set.param(self._auth_token, param_name, param_value)
         except rpc.Fault as err:
@@ -106,6 +106,15 @@ class UtmXmlRpc:
         except rpc.Fault as err:
             return 2, f"\tОшибка utm.set_proxy_port: [{err.faultCode}] — {err.faultString}"
         return 0, result  # Возвращает True
+
+    def get_proxyportal_config(self):
+        """Получить настройки веб-портала"""
+        try:
+            result = self._server.v1.proxyportal.config.get(self._auth_token)
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_proxyportal_config: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return 0, result
 
 ##################################### ZONES #####################################
     def get_zones_list(self):
@@ -187,6 +196,54 @@ class UtmXmlRpc:
                 return 1, f"\tDHCP subnet: {subnet['name']} уже существует."
             else:
                 return 2, f"Ошибка add_dhcp_subnet: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result
+
+##################################### DNS ######################################
+    def get_dns_config(self):
+        """Получить настройки DNS"""
+        try:
+            dns_servers = self._server.v2.settings.custom.dnses.list(self._auth_token)  # список системных DNS-серверов
+            dns_rules = self._server.v1.dns.rules.list(self._auth_token, 0, 1000, {})   # список правил DNS
+            static_records = self._server.v1.dns.static.records.list(self._auth_token, 0, 1000, {})   # список статических записей
+        except rpc.Fault as err:
+            print(f"Ошибка utm.get_dns_config: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return dns_servers, dns_rules['items'], static_records['items']
+
+    def add_dns_server(self, dns_server):
+        """Добавить DNS server"""
+        try:
+            result = self._server.v2.settings.custom.dns.add(self._auth_token, dns_server)
+        except rpc.Fault as err:
+            if err.faultCode == 409:
+                return 1, f"\tDNS server {dns_server['dns']} уже существует."
+            else:
+                return 2, f"\tОшибка utm.add_dns_server: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result
+
+    def add_dns_rule(self, dns_rule):
+        """Добавить правило DNS"""
+        try:
+            result = self._server.v1.dns.rule.add(self._auth_token, dns_rule)
+        except rpc.Fault as err:
+            if err.faultCode == 409:
+                return 1, f"\tПравило DNS {dns_rule['name']} уже существует."
+            else:
+                return 2, f"\tОшибка utm.add_dns_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result
+
+    def add_dns_record(self, dns_record):
+        """Добавить статическую запись DNS"""
+        try:
+            result = self._server.v1.dns.static.record.add(self._auth_token, dns_record)
+        except rpc.Fault as err:
+            if err.faultCode == 409:
+                return 1, f'\tСтатическая запись DNS "{dns_record["name"]}" уже существует.'
+            else:
+                return 2, f"\tОшибка utm.add_dns_record: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result
 

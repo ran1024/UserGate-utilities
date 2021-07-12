@@ -33,6 +33,7 @@ class UTM(UtmXmlRpc):
         self.list_ssl_profiles = {}     # Список профилей ssl {name: id}
         self.list_groups = {}           # Список локальных групп {name: guid}
         self.list_users = {}            # Список локальных пользователей {name: guid}
+        self.auth_profiles = {}         # Список профилей авторизации {id: name}
         self._connect()
 
     def init_struct_for_export(self):
@@ -52,9 +53,16 @@ class UTM(UtmXmlRpc):
 
             result = self._server.v3.accounts.groups.list(self._auth_token, 0, 1000, {})
             self.list_groups = {x['guid']: x['name'] for x in result['items'] if result['total']}
+
+            result = self._server.v1.auth.user.auth.profiles.list(self._auth_token)
+            self.auth_profiles = {x['id']: x['name'] for x in result}
             
         except rpc.Fault as err:
             print(f"\033[31mОшибка ug_convert_config/init_struct_for_export(): [{err.faultCode}] {err.faultString}\033[0m")
+
+        total, data = self.get_templates_list()
+        self.list_templates = {x['type'] if x['default'] else x['id']: x['name'] for x in data if total}
+
 
     def init_struct_for_import(self):
         """Заполнить служебные структуры данных"""
@@ -1160,6 +1168,21 @@ class UTM(UtmXmlRpc):
             else:
                 print(f'\tВ исключения кеширования добавлен URL: "{item["value"]}".')
 
+    def export_proxy_portal(self):
+        """Выгрузить настройки веб-портала"""
+        print('Выгружаются настройки Веб-портала раздела "Настройки":')
+        if not os.path.isdir('data/settings'):
+            os.mkdir('data/settings')
+
+        print(self.list_templates)
+        _, data = self.get_proxyportal_config()
+        if data:
+            data['user_auth_profile_id'] = self.auth_profiles.get(data['user_auth_profile_id'], None)
+#            data['proxy_portal_template_id'] = self.list_templates.get(data['proxy_portal_template_id'], self.list_templates['proxy_portal'])
+        with open("data/settings/config_proxy_portal.json", "w") as fh:
+            json.dump(data, fh, indent=4, ensure_ascii=False)
+        print(f'\tНастройки Веб-портала выгружены в файл "data/settings/config_proxy_portal.json".')
+
 ################### Пользователи и устройства ################################
     def export_groups_lists(self):
         """Выгружает список групп"""
@@ -1260,20 +1283,22 @@ class UTM(UtmXmlRpc):
     def export_zones_list(self):
         """Выгрузить список зон"""
         print('Выгружается список "Зоны" раздела "Сеть":')
-        data = {}
+        if not os.path.isdir('data/network'):
+            os.mkdir('data/network')
+
         _, data = self.get_zones_list()
-        with open("data/config_zones.json", "w") as fd:
+        with open("data/network/config_zones.json", "w") as fd:
             json.dump(data, fd, indent=4, ensure_ascii=False)
-        print(f"\tСписок зон: выгружен в файл 'data/config_zones.json'.")
+        print(f"\tСписок зон выгружен в файл 'data/network/config_zones.json'.")
 
     def import_zones(self):
         """Импортировать зоны на UTM"""
         print("Импорт зон:")
         try:
-            with open("data/config_zones.json", "r") as fd:
+            with open("data/network/config_zones.json", "r") as fd:
                 zones = json.load(fd)
         except FileNotFoundError as err:
-            print(f'\t\033[31mСписок "Зоны" не импортирован!\n\tНе найден файл "data/config_zones.json" с сохранённой конфигурацией!\033[0;0m')
+            print(f'\t\033[31mСписок "Зоны" не импортирован!\n\tНе найден файл "data/network/config_zones.json" с сохранённой конфигурацией!\033[0;0m')
             return
 
         for item in zones:
@@ -1290,7 +1315,7 @@ class UTM(UtmXmlRpc):
             elif err == 2:
                 print(result)
             else:
-                print(f"\tЗона '{item['name']}' добавлена на узел: {self.node_name}, ip: {self.server_ip}.")
+                print(f"\tЗона '{item['name']}' добавлена.")
 
 ################### INTERFACES #################################
     def export_interfaces_list(self):
@@ -1393,16 +1418,17 @@ class UTM(UtmXmlRpc):
                     print(f"Создаём новый порт {item['name']}")
                     
 
-
 ################### DHCP #################################
     def export_dhcp_subnets(self):
         """Выгрузить список DHCP"""
         print('Выгружается список "DHCP" раздела "Сеть":')
-        data = {}
+        if not os.path.isdir('data/network'):
+            os.mkdir('data/network')
+
         _, data = self.get_dhcp_list()
-        with open("data/config_dhcp_subnets.json", "w") as fd:
+        with open("data/network/config_dhcp_subnets.json", "w") as fd:
             json.dump(data, fd, indent=4, ensure_ascii=False)
-        print(f"\tСписок подсетей DHCP: выгружен в файл 'data/config_dhcp_subnets.json'.")
+        print(f"\tСписок подсетей DHCP выгружен в файл 'data/network/config_dhcp_subnets.json'.")
 
     def import_dhcp_subnets(self):
         """Добавить DHCP subnets на UTM"""
@@ -1411,10 +1437,10 @@ class UTM(UtmXmlRpc):
         dst_ports = [x['name'] for x in data if not x['name'].startswith('tunnel')]
 
         try:
-            with open("data/config_dhcp_subnets.json", "r") as fd:
+            with open("data/network/config_dhcp_subnets.json", "r") as fd:
                 subnets = json.load(fd)
         except FileNotFoundError as err:
-            print(f'\t\033[31mСписок "DHCP" не импортирован!\n\tНе найден файл "data/config_dhcp_subnets.json.json" с сохранённой конфигурацией!\033[0;0m')
+            print(f'\t\033[31mСписок "DHCP" не импортирован!\n\tНе найден файл "data/network/config_dhcp_subnets.json.json" с сохранённой конфигурацией!\033[0;0m')
             return
 
         src_ports = {x['iface_id']: '' for x in subnets}
@@ -1440,7 +1466,124 @@ class UTM(UtmXmlRpc):
                 item.pop("node_name")
             item['iface_id'] = src_ports[item['iface_id']]
             err, result = self.add_dhcp_subnet(item)
-            print(result) if err else print(f"\tSubnet '{item['name']}' добавлен на node: {self.node_name}, ip: {self.server_ip}.")
+            print(result) if err else print(f"\tSubnet '{item['name']}' добавлен.")
+
+################### DNS #################################
+    def export_dns_config(self):
+        """Выгрузить настройки DNS"""
+        print('Выгружаются настройки DNS раздела "Сеть":')
+        if not os.path.isdir('data/network'):
+            os.mkdir('data/network')
+        params = (
+            'use_cache_enabled',
+            'enable_dns_filtering',
+            'recursive_enabled',
+            'dns_max_ttl',
+            'dns_max_queries_per_user',
+            'only_a_for_unknown',
+            'dns_receive_timeout',
+            'dns_max_attempts'
+        )
+
+        dns_servers, dns_rules, static_records = self.get_dns_config()
+
+        with open("data/network/config_dns_servers.json", "w") as fd:
+            json.dump(dns_servers, fd, indent=4, ensure_ascii=False)
+        print(f"\tСписок системных DNS серверов выгружен в файл 'data/network/config_dns_servers.json'.")
+
+        with open("data/network/config_dns_rules.json", "w") as fd:
+            json.dump(dns_rules, fd, indent=4, ensure_ascii=False)
+        print(f"\tСписок правил DNS прокси выгружен в файл 'data/network/config_dns_rules.json'.")
+
+        with open("data/network/config_dns_static.json", "w") as fd:
+            json.dump(static_records, fd, indent=4, ensure_ascii=False)
+        print(f"\tСтатические записи DNS прокси выгружены в файл 'data/network/config_dns_static.json'.")
+
+        _, data = self.get_settings_params(params)
+        with open("data/network/config_dns_proxy.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f"\tНастройки DNS-прокси выгружены в файл 'data/network/config_dns_proxy.json'.")
+
+    def import_dns_proxy(self):
+        """Импортировать настройки DNS прокси"""
+        try:
+            with open("data/network/config_dns_proxy.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mНастройки DNS-прокси не импортированы!\n\tНе найден файл "data/network/config_dns_proxy.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        for key, value in data.items():
+            err, result = self.set_settings_param(key, value)
+            if err == 2:
+                print(f"\033[31m{result}\033[0m")
+        print(f'\tНастройки DNS-прокси импортированы.')
+            
+    def import_dns_servers(self):
+        """Импортировать список системных DNS серверов"""
+        try:
+            with open("data/network/config_dns_servers.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок системных DNS серверов не импортирован!\n\tНе найден файл "data/network/config_dns_servers.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        for item in data:
+            err, result = self.add_dns_server(item)
+            if err == 1:
+                print(result)
+            elif err == 2:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                print(f'\tDNS сервер "{item["dns"]}" добавлен.')
+
+    def import_dns_rules(self):
+        """Импортировать список правил DNS прокси"""
+        try:
+            with open("data/network/config_dns_rules.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок правил DNS прокси не импортирован!\n\tНе найден файл "data/network/config_dns_rules.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        dns_rules = [x['name'] for x in self._server.v1.dns.rules.list(self._auth_token, 0, 1000, {})['items']]
+        for item in data:
+            if item['name'] in dns_rules:
+                print(f'\tПравило DNS прокси "{item["name"]}" уже существует.')
+            else:
+                err, result = self.add_dns_rule(item)
+                if err == 1:
+                    print(result)
+                elif err == 2:
+                    print(f"\033[31m{result}\033[0m")
+                else:
+                    print(f'\tПравило DNS прокси "{item["name"]}" добавлено.')
+
+    def import_dns_static(self):
+        """Импортировать статические записи DNS прокси"""
+        try:
+            with open("data/network/config_dns_static.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСтатические записи DNS прокси не импортированы!\n\tНе найден файл "data/network/config_dns_static.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        for item in data:
+            err, result = self.add_dns_record(item)
+            if err == 1:
+                print(result)
+            elif err == 2:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                print(f'\tСтатическая запись DNS "{item["name"]}" добавлена.')
+        
+    def import_dns_config(self):
+        """Импортировать настройки DNS"""
+        print('Импорт настроек DNS раздела "Сеть":')
+        self.import_dns_proxy()
+        self.import_dns_servers()
+        self.import_dns_rules()
+        self.import_dns_static()
 
 def menu1():
     print("\033c")
@@ -1522,12 +1665,14 @@ def menu3(utm, mode, section):
             print("1  - Экспортировать список Зон.")
 #            print("2  - Экспортировать список интерфейсов.")
             print("3  - Экспортировать список подсетей DHCP.")
+            print("4  - Экспортировать настройки DNS.")
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
         elif section == 3:
             print('1  - Экспортировать настройки NTP раздела "Настройки".')
             print('2  - Экспортировать настройки Модулей и кэширования HTTP раздела "Настройки".')
+            print('3  - Экспортировать настройки Веб-портала раздела "Настройки".')
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -1565,12 +1710,14 @@ def menu3(utm, mode, section):
             print("\n1  - Импортировать список Зон.")
 #            print("2  - Импортировать список интерфейсов.")
             print("3  - Импортировать список подсетей DHCP.")
+            print("4  - Импортировать настройки DNS.")
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
         elif section == 3:
             print("1  - Импортировать настройки NTP.")
             print('2  - Импортировать настройки Модулей и кэширования HTTP раздела "Настройки".')
+            print('3  - Импортировать настройки Веб-портала раздела "Настройки".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -1694,17 +1841,23 @@ def main():
 #                    utm.export_interfaces_list()
                 elif command == 203:
                     utm.export_dhcp_subnets()
+                elif command == 204:
+                    utm.export_dns_config()
                 elif command == 299:
                     utm.export_zones_list()
                     utm.export_dhcp_subnets()
+                    utm.export_dns_config()
 
                 elif command == 301:
                     utm.export_ntp()
                 elif command == 302:
                     utm.export_settings()
+                elif command == 303:
+                    utm.export_proxy_portal()
                 elif command == 399:
                     utm.export_ntp()
                     utm.export_settings()
+                    utm.export_proxy_portal()
 
                 elif command == 401:
                     utm.export_groups_lists()
@@ -1735,14 +1888,16 @@ def main():
                     utm.export_ssl_profiles_list()
                     utm.export_zones_list()
                     utm.export_dhcp_subnets()
+                    utm.export_dns_config()
                     utm.export_ntp()
                     utm.export_settings()
+                    utm.export_proxy_portal()
                     utm.export_groups_lists()
                     utm.export_users_lists()
             except UtmError as err:
                 print(err)
-            except Exception as err:
-                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+#            except Exception as err:
+#                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
             finally:
                 utm.logout()
                 print("\033[32mЭкспорт конфигурации завершён.\033[0m\n")
@@ -1811,9 +1966,12 @@ def main():
 #                        utm.import_interfaces()
                     elif command == 203:
                         utm.import_dhcp_subnets()
+                    elif command == 204:
+                        utm.import_dns_config()
                     elif command == 299:
                         utm.import_zones()
                         utm.import_dhcp_subnets()
+                        utm.import_dns_config()
 
                     elif command == 301:
                         utm.import_ntp()
@@ -1851,6 +2009,7 @@ def main():
                         utm.import_ssl_profiles()
                         utm.import_zones()
                         utm.import_dhcp_subnets()
+                        utm.import_dns_config()
                         utm.import_ntp()
                         utm.import_settings()
                         utm.import_groups_list()
@@ -1868,8 +2027,8 @@ def main():
     except KeyboardInterrupt:
         print("\nПрограмма принудительно завершена пользователем.\n")
         utm.logout()
-    except:
-        print("\nПрограмма завершена.\n")
+#    except:
+#        print("\nПрограмма завершена.\n")
 
 if __name__ == '__main__':
     main()
