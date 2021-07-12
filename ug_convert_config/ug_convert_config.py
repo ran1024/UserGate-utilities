@@ -251,7 +251,7 @@ class UTM(UtmXmlRpc):
             elif err == 2:
                 print(result)
             else:
-                self.sevices[item['name']] = result
+                self.services[item['name']] = result
                 print(f"\tСервис '{item['name']}' добавлен.")
 
     def export_IP_lists(self):
@@ -2016,8 +2016,8 @@ def main():
                         utm.import_users_list()
                 except UtmError as err:
                     print(err)
-                except Exception as err:
-                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+#                except Exception as err:
+#                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
                 finally:
                     utm.logout()
                     print("\033[32mИмпорт конфигурации завершён.\033[0m\n")
