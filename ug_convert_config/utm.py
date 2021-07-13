@@ -14,7 +14,7 @@ class UtmXmlRpc:
         self.version = None
         self.server_ip = server_ip
         self.node_name = None
-        self.auth_servers = {}  # Список серверов авторизации {name: id}
+#        self.auth_servers = {}  # Список серверов авторизации {name: id}
 
     def _connect(self):
         """Подключиться к UTM"""
@@ -594,7 +594,7 @@ class UtmXmlRpc:
         except TypeError as err:
             return 2, err
         except rpc.Fault as err:
-            return 1, f"Ошибка update_ssl_profile: [{err.faultCode}] — {err.faultString}"
+            return 1, f"Ошибка utm.update_ssl_profile: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result     # Возвращает True
 
@@ -604,7 +604,7 @@ class UtmXmlRpc:
         try:
             result = self._server.v3.accounts.groups.list(self._auth_token, 0, 1000, {})
         except rpc.Fault as err:
-            print(f"\tОшибка get_groups_list: [{err.faultCode}] — {err.faultString}")
+            print(f"\tОшибка utm.get_groups_list: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
         return len(result['items']), result['items']
 
@@ -616,7 +616,7 @@ class UtmXmlRpc:
             if err.faultCode == 409:
                 return 1, f"\tГруппа '{group['name']}' уже существует. Проверка параметров..."
             else:
-                return 2, f"\tОшибка add_group: [{err.faultCode}] — {err.faultString}"
+                return 2, f"\tОшибка utm.add_group: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result     # Возвращает GUID добавленной группы
 
@@ -627,9 +627,18 @@ class UtmXmlRpc:
         except TypeError as err:
             return 2, err
         except rpc.Fault as err:
-            return 1, f"\tОшибка update_group: [{err.faultCode}] — {err.faultString}"
+            return 1, f"\tОшибка utm.update_group: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result     # Возвращает True
+
+    def get_group_users(self, group_guid):
+        """Получить список пользователей в группе"""
+        try:
+            result = self._server.v3.accounts.group.users.list(self._auth_token, group_guid, 0, 1000, {})
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_group_users: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result['items']), result['items']
 
     def get_users_list(self):
         """Получить список локальных пользователей"""
@@ -666,7 +675,7 @@ class UtmXmlRpc:
         try:
             result = self._server.v3.accounts.group.user.add(self._auth_token, group_guid, user_guid)
         except rpc.Fault as err:
-            return 2, f"\t\tОшибка add_user: [{err.faultCode}] — {err.faultString}"
+            return 2, f"\t\tОшибка utm.add_user: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result     # Возвращает true
 
@@ -703,5 +712,37 @@ class UtmXmlRpc:
         else:
             self.auth_servers[server['name']] = result
             return 0, result     # Возвращает ID добавленного сервера авторизации
+
+    def get_auth_profiles(self):
+        """Получить список профилей авторизации"""
+        try:
+            result = self._server.v1.auth.user.auth.profiles.list(self._auth_token)
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_auth_profiles: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result['items']), result['items']
+
+    def get_2fa_profiles(self):
+        """Получить список профилей MFA"""
+        try:
+            f = getattr(self._server, 'v1.2fa.profiles.list')
+            result = f(self._auth_token, 0, 100, '')
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_2fa_profiles: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result['items']), result['items']
+
+    def add_2fa_profile(self, profile):
+        """Добавить новый профиль MFA"""
+        if profile['name'] in self.profiles_2fa.keys():
+            return 1, f"\tПрофиль MFA '{profile['name']}' уже существует."
+        try:
+            f = getattr(self._server, 'v1.2fa.profile.add')
+            result = f(self._auth_token, profile)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_2fa_profile: [{err.faultCode}] — {err.faultString}"
+        else:
+            self.profiles_2fa[profile['name']] = result
+            return 0, result     # Возвращает ID добавленного профиля
 
 class UtmError(Exception): pass

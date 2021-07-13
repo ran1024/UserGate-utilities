@@ -28,11 +28,13 @@ class UTM(UtmXmlRpc):
         self.list_applicationgroup = {} # Список групп приложений раздела библиотеки  {name: id}
         self.l7_categories = {}         # Список L7 категорий
         self.l7_apps = {}               # Список L7 приложений
-        self.list_notifications = {}    # Список профилей оповещения {name: id}
+        self.list_notifications = {}    # Список профилей оповещения {id: name} для экспорта и {name: id} для импорта
         self.list_netflow = {}          # Список профилей netflow {name: id}
         self.list_ssl_profiles = {}     # Список профилей ssl {name: id}
         self.list_groups = {}           # Список локальных групп {name: guid}
         self.list_users = {}            # Список локальных пользователей {name: guid}
+        self.profiles_2fa = {}          # Список профилей MFA {name: guid}
+        self.auth_servers = {}          # Список серверов авторизации {name: id}
         self.auth_profiles = {}         # Список профилей авторизации {id: name}
         self._connect()
 
@@ -57,6 +59,8 @@ class UTM(UtmXmlRpc):
             result = self._server.v1.auth.user.auth.profiles.list(self._auth_token)
             self.auth_profiles = {x['id']: x['name'] for x in result}
             
+            result = self._server.v1.notification.profiles.list(self._auth_token)
+            self.list_notifications = {x['id']: x['name'] for x in result}
         except rpc.Fault as err:
             print(f"\033[31mОшибка ug_convert_config/init_struct_for_export(): [{err.faultCode}] {err.faultString}\033[0m")
 
@@ -135,6 +139,9 @@ class UTM(UtmXmlRpc):
 
         total, data = self.get_users_list()
         self.list_users = {x['name']: x['guid'] for x in data if total}
+
+        total, data = self.get_2fa_profiles()
+        self.profiles_2fa = {x['name']: x['id'] for x in data if total}
 
         ldap, radius, tacacs, ntlm, saml = self.get_auth_servers()
         self.auth_servers = {x['name']: x['id'] for x in [*ldap, *radius, *tacacs, *ntlm, *saml]}
@@ -1196,8 +1203,9 @@ class UTM(UtmXmlRpc):
         _, data = self.get_groups_list()
 
         for item in data:
-            item.pop('guid')
+            _, users = self.get_group_users(item['guid'])
             item.pop('cc', None)
+            item['users'] = [x[1] for x in users]
         with open(f"data/users_and_devices/config_groups.json", "w") as fd:
             json.dump(data, fd, indent=4, ensure_ascii=False)
         print(f"\tСписок локальных групп выгружен в файл data/users_and_devices/config_groups.json")
@@ -1213,6 +1221,7 @@ class UTM(UtmXmlRpc):
             return
 
         for item in groups:
+            users = item.pop('users')
             err, result = self.add_group(item)
             if err == 1:
                 print(result, end= ' - ')
@@ -1227,6 +1236,10 @@ class UTM(UtmXmlRpc):
             else:
                 self.list_groups[item['name']] = result
                 print(f'\tЛокальная группа "{item["name"]}" добавлена.')
+#            for user_name in users:
+#                err2, result2 = self.add_user_in_group(self.list_groups[item['name']], user_guid])
+#                if err2 != 0:
+#                    print("\n", f"\033[31m{result2}\033[0m")
 
     def export_users_lists(self):
         """Выгружает список локальных пользователей"""
@@ -1414,7 +1427,7 @@ class UTM(UtmXmlRpc):
             return
 
         if not data:
-            print("\tНет серверов авторизации SAML импорта.")
+            print("\tНет серверов авторизации SAML для импорта.")
             return
         for item in data:
             err, result = self.add_auth_server('saml', item)
@@ -1425,6 +1438,54 @@ class UTM(UtmXmlRpc):
             else:
                 print(f'\tСервер авторизации SAML "{item["name"]}" добавлен.')
                 print(f'\t\033[36mНа сервере авторизации "{item["name"]}" загрузите SAML metadata.\033[0m')
+
+    def export_2fa_profiles(self):
+        """Выгрузить список 2FA профилей"""
+        print('Выгружается список "Профили MFA" раздела "Пользователи и устройства":')
+        if not os.path.isdir('data/users_and_devices'):
+            os.mkdir('data/users_and_devices')
+
+        _, data = self.get_2fa_profiles()
+        for item in data:
+            if item['type'] == 'totp':
+                item['init_notification_profile_id'] = self.list_notifications.get(item['init_notification_profile_id'], item['init_notification_profile_id'])
+            else:
+                item['auth_notification_profile_id'] = self.list_notifications.get(item['auth_notification_profile_id'], item['auth_notification_profile_id'])
+        with open("data/users_and_devices/config_2fa_profiles.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Профили MFA" выгружен в файл "data/users_and_devices/config_2fa_profiles.json".')
+
+    def import_2fa_profiles(self):
+        """Импортировать список 2FA профилей"""
+        print('Импорт списка "Профили MFA" раздела "Пользователи и устройства":')
+        try:
+            with open("data/users_and_devices/config_2fa_profiles.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Профили MFA" не импортирован!\n\tНе найден файл "data/users_and_devices/config_2fa_profiles.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет профилей MFA для импорта.")
+            return
+        for item in data:
+            if item['type'] == 'totp':
+                if item['init_notification_profile_id'] != -5 and item['init_notification_profile_id'] not in self.list_notifications.keys():
+                    print(f'\t\033[31mПрофиль MFA "{item["name"]}" не добавлен так как "Инициализация TOTP" для него не существует.\n\tЗагрузите профили оповещения и повторите попытку.\033[0m')
+                    continue
+                item['init_notification_profile_id'] = self.list_notifications.get(item['init_notification_profile_id'], -5)
+            else:
+                if item['auth_notification_profile_id'] not in self.list_notifications.keys():
+                    print(f'\t\033[31mПрофиль MFA "{item["name"]}" не добавлен так как профиль отправки MFA для него не существует.\n\tЗагрузите профили оповещения и повторите попытку.\033[0m')
+                    continue
+                item['auth_notification_profile_id'] = self.list_notifications[item['auth_notification_profile_id']]
+            err, result = self.add_2fa_profile(item)
+            if err == 1:
+                print(result)
+            elif err == 2:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                print(f'\tПрофиль MFA "{item["name"]}" добавлен.')
 
 ################### ZONES #####################################
     def export_zones_list(self):
@@ -1826,7 +1887,8 @@ def menu3(utm, mode, section):
         elif section == 4:
             print("1   - Экспортировать список локальных групп.")
             print("2   - Экспортировать список локальных пользователей.")
-            print("3   - Экспортировать список серверов авторизации.")
+            print("3   - Экспортировать список профилей MFA.")
+            print("4   - Экспортировать список серверов авторизации.")
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -1872,11 +1934,12 @@ def menu3(utm, mode, section):
         elif section == 4:
             print("1   - Импортировать список локальных групп.")
             print("2   - Импортировать список локальных пользователей.")
-            print("3   - Импортировать список серверов авторизации LDAP.")
-            print("4   - Импортировать список серверов авторизации NTLM.")
-            print("5   - Импортировать список серверов авторизации RADIUS.")
-            print("6   - Импортировать список серверов авторизации TACACS.")
-            print("7   - Импортировать список серверов авторизации SAML.")
+            print("3   - Импортировать список профилей MFA.")
+            print("4   - Импортировать список серверов авторизации LDAP.")
+            print("5   - Импортировать список серверов авторизации NTLM.")
+            print("6   - Импортировать список серверов авторизации RADIUS.")
+            print("7   - Импортировать список серверов авторизации TACACS.")
+            print("8   - Импортировать список серверов авторизации SAML.")
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -2017,10 +2080,13 @@ def main():
                 elif command == 402:
                     utm.export_users_lists()
                 elif command == 403:
+                    utm.export_2fa_profiles()
+                elif command == 404:
                     utm.export_auth_servers()
                 elif command == 499:
                     utm.export_groups_lists()
                     utm.export_users_lists()
+                    utm.export_2fa_profiles()
                     utm.export_auth_servers()
 
                 elif command == 9999:
@@ -2050,6 +2116,7 @@ def main():
                     utm.export_proxy_portal()
                     utm.export_groups_lists()
                     utm.export_users_lists()
+                    utm.export_2fa_profiles()
                     utm.export_auth_servers()
             except UtmError as err:
                 print(err)
@@ -2143,18 +2210,21 @@ def main():
                     elif command == 402:
                         utm.import_users_list()
                     elif command == 403:
-                        utm.import_ldap_server()
+                        utm.import_2fa_profiles()
                     elif command == 404:
-                        utm.import_ntlm_server()
+                        utm.import_ldap_server()
                     elif command == 405:
-                        utm.import_radius_server()
+                        utm.import_ntlm_server()
                     elif command == 406:
-                        utm.import_tacacs_server()
+                        utm.import_radius_server()
                     elif command == 407:
+                        utm.import_tacacs_server()
+                    elif command == 408:
                         utm.import_saml_server()
                     elif command == 499:
                         utm.import_groups_list()
                         utm.import_users_list()
+                        utm.import_2fa_profiles()
                         utm.import_ldap_server()
                         utm.import_ntlm_server()
                         utm.import_radius_server()
@@ -2186,6 +2256,7 @@ def main():
                         utm.import_settings()
                         utm.import_groups_list()
                         utm.import_users_list()
+                        utm.import_2fa_profiles()
                         utm.import_ldap_server()
                         utm.import_ntlm_server()
                         utm.import_radius_server()
