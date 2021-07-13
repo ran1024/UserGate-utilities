@@ -14,6 +14,7 @@ class UtmXmlRpc:
         self.version = None
         self.server_ip = server_ip
         self.node_name = None
+        self.auth_servers = {}  # Список серверов авторизации {name: id}
 
     def _connect(self):
         """Подключиться к UTM"""
@@ -668,5 +669,39 @@ class UtmXmlRpc:
             return 2, f"\t\tОшибка add_user: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result     # Возвращает true
+
+    def get_auth_servers(self):
+        """Получить список серверов авторизации"""
+        try:
+            ldap = self._server.v1.auth.ldap.servers.list(self._auth_token, {})
+            radius = self._server.v1.auth.radius.servers.list(self._auth_token, {})
+            tacacs = self._server.v1.auth.tacacs.plus.server.list(self._auth_token, {})
+            ntlm = self._server.v1.auth.ntlm.server.list(self._auth_token, {})
+            saml = self._server.v1.auth.saml.idp.servers.list(self._auth_token, {})
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_auth_servers: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return ldap, radius, tacacs, ntlm, saml
+
+    def add_auth_server(self, type, server):
+        """Добавить auth сервер"""
+        if server['name'] in self.auth_servers.keys():
+            return 1, f"\tСервер авторизации '{server['name']}' уже существует."
+        try:
+            if type == 'ldap':
+                result = self._server.v1.auth.ldap.server.add(self._auth_token, server)
+            elif type == 'ntlm':
+                result = self._server.v1.auth.ntlm.server.add(self._auth_token, server)
+            elif type == 'radius':
+                result = self._server.v1.auth.radius.server.add(self._auth_token, server)
+            elif type == 'tacacs':
+                result = self._server.v1.auth.tacacs.plus.server.add(self._auth_token, server)
+            elif type == 'saml':
+                result = self._server.v1.auth.saml.idp.server.add(self._auth_token, server)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_auth_server: [{err.faultCode}] — {err.faultString}"
+        else:
+            self.auth_servers[server['name']] = result
+            return 0, result     # Возвращает ID добавленного сервера авторизации
 
 class UtmError(Exception): pass

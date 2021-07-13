@@ -136,6 +136,9 @@ class UTM(UtmXmlRpc):
         total, data = self.get_users_list()
         self.list_users = {x['name']: x['guid'] for x in data if total}
 
+        ldap, radius, tacacs, ntlm, saml = self.get_auth_servers()
+        self.auth_servers = {x['name']: x['id'] for x in [*ldap, *radius, *tacacs, *ntlm, *saml]}
+
     def init_struct(self):
         """Заполнить служебные структуры данных. Применяется при экспорте и импорте."""
         pass
@@ -1279,6 +1282,150 @@ class UTM(UtmXmlRpc):
                 if err2 != 0:
                     print("\n", f"\033[31m{result2}\033[0m")
 
+    def export_auth_servers(self):
+        """Выгрузить списки серверов авторизации"""
+        print('Выгружаются списки серверов авторизации раздела "Пользователи и устройства":')
+        if not os.path.isdir('data/users_and_devices'):
+            os.mkdir('data/users_and_devices')
+
+        ldap, radius, tacacs, ntlm, saml = self.get_auth_servers()
+
+        with open("data/users_and_devices/config_ldap_servers.json", "w") as fd:
+            json.dump(ldap, fd, indent=4, ensure_ascii=False)
+        print(f"\tСписок серверов LDAP выгружен в файл 'data/users_and_devices/config_ldap_servers.json'.")
+
+        with open("data/users_and_devices/config_radius_servers.json", "w") as fd:
+            json.dump(radius, fd, indent=4, ensure_ascii=False)
+        print(f"\tСписок серверов RADIUS выгружен в файл 'data/users_and_devices/config_radius_servers.json'.")
+
+        with open("data/users_and_devices/config_tacacs_servers.json", "w") as fd:
+            json.dump(tacacs, fd, indent=4, ensure_ascii=False)
+        print(f"\tСписок серверов TACACS выгружен в файл 'data/users_and_devices/config_tacacs_static.json'.")
+
+        with open("data/users_and_devices/config_ntlm_servers.json", "w") as fd:
+            json.dump(ntlm, fd, indent=4, ensure_ascii=False)
+        print(f"\tСписок серверов NTLM выгружен в файл 'data/users_and_devices/config_ntlm_servers.json'.")
+
+        with open("data/users_and_devices/config_saml_servers.json", "w") as fd:
+            json.dump(saml, fd, indent=4, ensure_ascii=False)
+        print(f"\tСписок серверов SAML выгружен в файл 'data/users_and_devices/config_saml_servers.json'.")
+
+    def import_ldap_server(self):
+        """Импортировать список серверов LDAP"""
+        print('Импорт списка серверов LDAP раздела "Пользователи и устройства":')
+        try:
+            with open("data/users_and_devices/config_ldap_servers.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок серверов LDAP не импортирован!\n\tНе найден файл "data/users_and_devices/config_ldap_servers.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет серверов авторизации LDAP для импорта.")
+            return
+        for item in data:
+            item['enabled'] = False
+            item['keytab_exists'] = False
+            err, result = self.add_auth_server('ldap', item)
+            if err == 1:
+                print(result)
+            elif err == 2:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                print(f'\tСервер авторизации LDAP "{item["name"]}" добавлен.')
+                print(f'\t\033[36mНеобходимо включить "{item["name"]}", ввести пароль и импортировать keytab файл.\033[0m')
+
+    def import_ntlm_server(self):
+        """Импортировать список серверов NTLM"""
+        print('Импорт списка серверов NTLM раздела "Пользователи и устройства":')
+        try:
+            with open("data/users_and_devices/config_ntlm_servers.json", "r") as fh:
+                ntlm = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок серверов LDAP не импортирован!\n\tНе найден файл "data/users_and_devices/config_ntlm_servers.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not ntlm:
+            print("\tНет серверов авторизации NTLM для импорта.")
+            return
+        for item in ntlm:
+            err, result = self.add_auth_server('ntlm', item)
+            if err == 1:
+                print(result)
+            elif err == 2:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                print(f'\tСервер авторизации NTLM "{item["name"]}" добавлен.')
+
+    def import_radius_server(self):
+        """Импортировать список серверов RADIUS"""
+        print('Импорт списка серверов RADIUS раздела "Пользователи и устройства":')
+        try:
+            with open("data/users_and_devices/config_radius_servers.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок серверов RADIUS не импортирован!\n\tНе найден файл "data/users_and_devices/config_radius_servers.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет серверов авторизации RADIUS для импорта.")
+            return
+        for item in data:
+            err, result = self.add_auth_server('radius', item)
+            if err == 1:
+                print(result)
+            elif err == 2:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                print(f'\tСервер авторизации RADIUS "{item["name"]}" добавлен.')
+                print(f'\t\033[36mНа сервере авторизации "{item["name"]}" необходимо ввести пароль.\033[0m')
+
+    def import_tacacs_server(self):
+        """Импортировать список серверов TACACS"""
+        print('Импорт списка серверов TACACS раздела "Пользователи и устройства":')
+        try:
+            with open("data/users_and_devices/config_tacacs_servers.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок серверов TACACS не импортирован!\n\tНе найден файл "data/users_and_devices/config_tacacs_servers.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет серверов авторизации TACACS для импорта.")
+            return
+        for item in data:
+            err, result = self.add_auth_server('tacacs', item)
+            if err == 1:
+                print(result)
+            elif err == 2:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                print(f'\tСервер авторизации TACACS "{item["name"]}" добавлен.')
+                print(f'\t\033[36mНа сервере авторизации "{item["name"]}" необходимо ввести секретный ключ.\033[0m')
+
+    def import_saml_server(self):
+        """Импортировать список серверов SAML"""
+        print('Импорт списка серверов SAML раздела "Пользователи и устройства":')
+        try:
+            with open("data/users_and_devices/config_saml_servers.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок серверов SAML не импортирован!\n\tНе найден файл "data/users_and_devices/config_saml_servers.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет серверов авторизации SAML импорта.")
+            return
+        for item in data:
+            err, result = self.add_auth_server('saml', item)
+            if err == 1:
+                print(result)
+            elif err == 2:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                print(f'\tСервер авторизации SAML "{item["name"]}" добавлен.')
+                print(f'\t\033[36mНа сервере авторизации "{item["name"]}" загрузите SAML metadata.\033[0m')
+
 ################### ZONES #####################################
     def export_zones_list(self):
         """Выгрузить список зон"""
@@ -1622,7 +1769,7 @@ def menu2(mode):
         try:
             section = int(input(f"\nВведите номер раздела для {'экспорта' if mode == 1 else 'импорта'}: "))
             print("")
-            if section not in [0, 1, 2, 3, 99, 999]:
+            if section not in [0, 1, 2, 3, 4, 99, 999]:
                 print("Вы ввели номер несуществующего раздела.")
             elif section == 0:
                 sys.exit()
@@ -1662,37 +1809,38 @@ def menu3(utm, mode, section):
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
         elif section == 2:
-            print("1  - Экспортировать список Зон.")
+            print("1   - Экспортировать список Зон.")
 #            print("2  - Экспортировать список интерфейсов.")
-            print("3  - Экспортировать список подсетей DHCP.")
-            print("4  - Экспортировать настройки DNS.")
+            print("3   - Экспортировать список подсетей DHCP.")
+            print("4   - Экспортировать настройки DNS.")
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
         elif section == 3:
-            print('1  - Экспортировать настройки NTP раздела "Настройки".')
-            print('2  - Экспортировать настройки Модулей и кэширования HTTP раздела "Настройки".')
-            print('3  - Экспортировать настройки Веб-портала раздела "Настройки".')
+            print('1   - Экспортировать настройки NTP раздела "Настройки".')
+            print('2   - Экспортировать настройки Модулей и кэширования HTTP раздела "Настройки".')
+            print('3   - Экспортировать настройки Веб-портала раздела "Настройки".')
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
         elif section == 4:
-            print("1  - Экспортировать список локальных групп.")
-            print("2  - Экспортировать список локальных пользователей.")
+            print("1   - Экспортировать список локальных групп.")
+            print("2   - Экспортировать список локальных пользователей.")
+            print("3   - Экспортировать список серверов авторизации.")
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
     else:
         if section == 1:
-            print("1  - Импортировать списки морфологии.")
-            print('2  - Импортировать список "Сервисы" раздела "Библиотеки".')
-            print('3  - Импортировать список "IP-адреса" раздела "Библиотеки".')
-            print('4  - Импортировать список "UserAgent браузеров" раздела "Библиотеки".')
-            print('5  - Импортировать список "Типы контента" раздела "Библиотеки".')
-            print('6  - Импортировать "Список URL" раздела "Библиотеки".')
-            print('7  - Импортировать список "Календари" раздела "Библиотеки".')
-            print('8  - Импортировать список "Полосы пропускания" раздела "Библиотеки".')
-            print('9  - Импортировать список "Профили АСУ ТП" раздела "Библиотеки".')
+            print("1   - Импортировать списки морфологии.")
+            print('2   - Импортировать список "Сервисы" раздела "Библиотеки".')
+            print('3   - Импортировать список "IP-адреса" раздела "Библиотеки".')
+            print('4   - Импортировать список "UserAgent браузеров" раздела "Библиотеки".')
+            print('5   - Импортировать список "Типы контента" раздела "Библиотеки".')
+            print('6   - Импортировать "Список URL" раздела "Библиотеки".')
+            print('7   - Импортировать список "Календари" раздела "Библиотеки".')
+            print('8   - Импортировать список "Полосы пропускания" раздела "Библиотеки".')
+            print('9   - Импортировать список "Профили АСУ ТП" раздела "Библиотеки".')
             print('10  - Импортировать список "Шаблоны страниц" раздела "Библиотеки".')
             print('11  - Импортировать список "Категории URL" раздела "Библиотеки".')
             print('12  - Импортировать список "Приложения" раздела "Библиотеки".')
@@ -1707,23 +1855,28 @@ def menu3(utm, mode, section):
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
         elif section == 2:
-            print("\n1  - Импортировать список Зон.")
+            print("1   - Импортировать список Зон.")
 #            print("2  - Импортировать список интерфейсов.")
-            print("3  - Импортировать список подсетей DHCP.")
-            print("4  - Импортировать настройки DNS.")
+            print("3   - Импортировать список подсетей DHCP.")
+            print("4   - Импортировать настройки DNS.")
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
         elif section == 3:
-            print("1  - Импортировать настройки NTP.")
-            print('2  - Импортировать настройки Модулей и кэширования HTTP раздела "Настройки".')
-            print('3  - Импортировать настройки Веб-портала раздела "Настройки".')
+            print("1   - Импортировать настройки NTP.")
+            print('2   - Импортировать настройки Модулей и кэширования HTTP раздела "Настройки".')
+            print('3   - Импортировать настройки Веб-портала раздела "Настройки".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
         elif section == 4:
-            print("1  - Импортировать список локальных групп.")
-            print("2  - Импортировать список локальных пользователей.")
+            print("1   - Импортировать список локальных групп.")
+            print("2   - Импортировать список локальных пользователей.")
+            print("3   - Импортировать список серверов авторизации LDAP.")
+            print("4   - Импортировать список серверов авторизации NTLM.")
+            print("5   - Импортировать список серверов авторизации RADIUS.")
+            print("6   - Импортировать список серверов авторизации TACACS.")
+            print("7   - Импортировать список серверов авторизации SAML.")
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -1863,9 +2016,12 @@ def main():
                     utm.export_groups_lists()
                 elif command == 402:
                     utm.export_users_lists()
+                elif command == 403:
+                    utm.export_auth_servers()
                 elif command == 499:
                     utm.export_groups_lists()
                     utm.export_users_lists()
+                    utm.export_auth_servers()
 
                 elif command == 9999:
                     utm.export_morphology_lists()
@@ -1894,10 +2050,11 @@ def main():
                     utm.export_proxy_portal()
                     utm.export_groups_lists()
                     utm.export_users_lists()
+                    utm.export_auth_servers()
             except UtmError as err:
                 print(err)
-#            except Exception as err:
-#                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+            except Exception as err:
+                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
             finally:
                 utm.logout()
                 print("\033[32mЭкспорт конфигурации завершён.\033[0m\n")
@@ -1985,9 +2142,24 @@ def main():
                         utm.import_groups_list()
                     elif command == 402:
                         utm.import_users_list()
+                    elif command == 403:
+                        utm.import_ldap_server()
+                    elif command == 404:
+                        utm.import_ntlm_server()
+                    elif command == 405:
+                        utm.import_radius_server()
+                    elif command == 406:
+                        utm.import_tacacs_server()
+                    elif command == 407:
+                        utm.import_saml_server()
                     elif command == 499:
                         utm.import_groups_list()
                         utm.import_users_list()
+                        utm.import_ldap_server()
+                        utm.import_ntlm_server()
+                        utm.import_radius_server()
+                        utm.import_tacacs_server()
+                        utm.import_saml_server()
                     elif command == 9999:
                         utm.import_morphology()
                         utm.import_services()
@@ -2014,10 +2186,15 @@ def main():
                         utm.import_settings()
                         utm.import_groups_list()
                         utm.import_users_list()
+                        utm.import_ldap_server()
+                        utm.import_ntlm_server()
+                        utm.import_radius_server()
+                        utm.import_tacacs_server()
+                        utm.import_saml_server()
                 except UtmError as err:
                     print(err)
-#                except Exception as err:
-#                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+                except Exception as err:
+                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
                 finally:
                     utm.logout()
                     print("\033[32mИмпорт конфигурации завершён.\033[0m\n")
@@ -2027,8 +2204,8 @@ def main():
     except KeyboardInterrupt:
         print("\nПрограмма принудительно завершена пользователем.\n")
         utm.logout()
-#    except:
-#        print("\nПрограмма завершена.\n")
+    except:
+        print("\nПрограмма завершена.\n")
 
 if __name__ == '__main__':
     main()
