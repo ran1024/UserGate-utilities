@@ -281,9 +281,9 @@ class UtmXmlRpc:
             return 2, err
         except rpc.Fault as err:
             if err.faultCode == 409:
-                return 1, f"\tСписок: '{named_list['name']}' уже существует. Проверка параметров..."
+                return 1, f'\tСписок: "{named_list["name"]}" уже существует. Проверка параметров...'
             else:
-                return 2, f"Ошибка add_namedlist: [{err.faultCode}] — {err.faultString}"
+                return 2, f"\tОшибка add_namedlist: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result
 
@@ -297,7 +297,7 @@ class UtmXmlRpc:
             if err.faultCode == 409:
                 return 1, f"\tСписок: {named_list['name']} - нет отличающихся параметров для изменения."
             else:
-                return 2, f"Ошибка update_namedlist: [{err.faultCode}] — {err.faultString}"
+                return 2, f"\tОшибка update_namedlist: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result
 
@@ -309,9 +309,9 @@ class UtmXmlRpc:
             return 2, err
         except rpc.Fault as err:
             if err.faultCode == 2001:
-                return 1, f"\tСодержимое: {item} не будет добавлено, так как уже существует."
+                return 1, f"\t\tСодержимое: {item} не добавлено, так как уже существует."
             else:
-                return 2, f"Ошибка utm.add_nlist_item: [{err.faultCode}] — {err.faultString}"
+                return 2, f"\t\tОшибка utm.add_nlist_item: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result
 
@@ -370,9 +370,9 @@ class UtmXmlRpc:
             return 2, err
         except rpc.Fault as err:
             if err.faultCode == 409:
-                return 1, f"\tСервис: '{shaper['name']}' уже существует. Проверка параметров..."
+                return 1, f"\tПолоса пропускания '{shaper['name']}' уже существует. Проверка параметров..."
             else:
-                return 2, f"Ошибка add_shaper: [{err.faultCode}] — {err.faultString}"
+                return 2, f"\tОшибка add_shaper: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result     # Возвращает ID шейпера
 
@@ -410,7 +410,7 @@ class UtmXmlRpc:
             return 2, err
         except rpc.Fault as err:
             if err.faultCode == 409:
-                return 1, f"\tПрофиль АСУ ТП: '{scada['name']}' уже существует. Проверка параметров..."
+                return 1, f"\tПрофиль АСУ ТП '{scada['name']}' уже существует. Проверка параметров..."
             else:
                 return 2, f"Ошибка add_scada: [{err.faultCode}] — {err.faultString}"
         else:
@@ -447,9 +447,9 @@ class UtmXmlRpc:
             return 2, err
         except rpc.Fault as err:
             if err.faultCode == 409:
-                return 1, f"\tШаблон страницы: '{template['name']}' уже существует. Проверка параметров..."
+                return 1, f"\tШаблон страницы '{template['name']}' уже существует. Проверка параметров..."
             else:
-                return 2, f"Ошибка add_template: [{err.faultCode}] — {err.faultString}"
+                return 2, f"\tОшибка add_template: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result     # Возвращает ID шаблона
 
@@ -463,7 +463,7 @@ class UtmXmlRpc:
             if err.faultCode == 404:
                 return 1, f"\tНе удалось обновить шаблон страницы '{template['name']}' c id: {template_id}. Данная страница не найдена."
             else:
-                return 2, f"Ошибка update_template: [{err.faultCode}] — {err.faultString}"
+                return 2, f"\tОшибка update_template: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result     # Возвращает True
 
@@ -547,7 +547,7 @@ class UtmXmlRpc:
             return 2, err
         except rpc.Fault as err:
             if err.faultCode == 409:
-                return 1, f"\tПрофиль netflow: '{profile['name']}' уже существует. Проверка параметров..."
+                return 1, f'\tПрофиль netflow "{profile["name"]}" уже существует. Проверка параметров...'
             else:
                 return 2, f"Ошибка add_netflow_profile: [{err.faultCode}] — {err.faultString}"
         else:
@@ -581,7 +581,7 @@ class UtmXmlRpc:
             return 2, err
         except rpc.Fault as err:
             if err.faultCode == 409:
-                return 1, f"\tПрофиль SSL: '{profile['name']}' уже существует. Проверка параметров..."
+                return 1, f'\tПрофиль SSL: "{profile["name"]}" уже существует. Проверка параметров...'
             else:
                 return 2, f"Ошибка add_ssl_profile: [{err.faultCode}] — {err.faultString}"
         else:
@@ -713,15 +713,6 @@ class UtmXmlRpc:
             self.auth_servers[server['name']] = result
             return 0, result     # Возвращает ID добавленного сервера авторизации
 
-    def get_auth_profiles(self):
-        """Получить список профилей авторизации"""
-        try:
-            result = self._server.v1.auth.user.auth.profiles.list(self._auth_token)
-        except rpc.Fault as err:
-            print(f"\tОшибка utm.get_auth_profiles: [{err.faultCode}] — {err.faultString}")
-            sys.exit(1)
-        return len(result['items']), result['items']
-
     def get_2fa_profiles(self):
         """Получить список профилей MFA"""
         try:
@@ -744,5 +735,38 @@ class UtmXmlRpc:
         else:
             self.profiles_2fa[profile['name']] = result
             return 0, result     # Возвращает ID добавленного профиля
+
+    def get_auth_profiles(self):
+        """Получить список профилей авторизации"""
+        try:
+            result = self._server.v1.auth.user.auth.profiles.list(self._auth_token)
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_auth_profiles: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result), result
+
+    def add_auth_profile(self, profile):
+        """Добавить новый профиль авторизации"""
+        if profile['name'] in self.auth_profiles.keys():
+            return 1, f"\tПрофиль авторизации '{profile['name']}' уже существует."
+        try:
+            result = self._server.v1.auth.user.auth.profile.add(self._auth_token, profile)
+        except rpc.Fault as err:
+            if err.faultCode == 110:
+                return 2, f'\tПрофиль авторизации "{profile["name"]}" не добавлен — {err.faultString}.'
+            else:
+                return 2, f"\tОшибка utm.add_auth_profile: [{err.faultCode}] — {err.faultString}"
+        else:
+            self.auth_profiles[profile['name']] = result
+            return 0, result     # Возвращает ID добавленного профиля
+
+    def update_auth_profile(self, profile):
+        """Обновить профиль авторизации"""
+        try:
+            result = self._server.v1.auth.user.auth.profile.update(self._auth_token, profile['id'], profile)
+        except rpc.Fault as err:
+            return 1, f"\tОшибка utm.update_auth_profile: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
 
 class UtmError(Exception): pass

@@ -34,8 +34,8 @@ class UTM(UtmXmlRpc):
         self.list_groups = {}           # Список локальных групп {name: guid}
         self.list_users = {}            # Список локальных пользователей {name: guid}
         self.profiles_2fa = {}          # Список профилей MFA {name: guid}
-        self.auth_servers = {}          # Список серверов авторизации {name: id}
-        self.auth_profiles = {}         # Список профилей авторизации {id: name}
+        self.auth_servers = {}          # Список серверов авторизации {id: name} для экспорта и {name: id} для импорта
+        self.auth_profiles = {}         # Список профилей авторизации {id: name} для экспорта и {name: id} для импорта
         self._connect()
 
     def init_struct_for_export(self):
@@ -67,6 +67,11 @@ class UTM(UtmXmlRpc):
         total, data = self.get_templates_list()
         self.list_templates = {x['type'] if x['default'] else x['id']: x['name'] for x in data if total}
 
+        total, data = self.get_2fa_profiles()
+        self.profiles_2fa = {x['id']: x['name'] for x in data if total}
+
+        ldap, radius, tacacs, ntlm, saml = self.get_auth_servers()
+        self.auth_servers = {x['id']: x['name'] for x in [*ldap, *radius, *tacacs, *ntlm, *saml]}
 
     def init_struct_for_import(self):
         """Заполнить служебные структуры данных"""
@@ -122,6 +127,9 @@ class UTM(UtmXmlRpc):
             result = self._server.v3.accounts.groups.list(self._auth_token, 0, 1000, {})
             self.list_groups = {x['name']: x['guid'] for x in result['items'] if result['total']}
 
+            result = self._server.v1.auth.user.auth.profiles.list(self._auth_token)
+            self.auth_profiles = {x['name']: x['id'] for x in result}
+
         except rpc.Fault as err:
             print(f"\033[31mОшибка ug_convert_config/init_struct_for_import(): [{err.faultCode}] {err.faultString}\033[0m")
 
@@ -153,12 +161,12 @@ class UTM(UtmXmlRpc):
 ################### Библиотеки ################################
     def export_morphology_lists(self):
         """Выгружает списки морфологии и преобразует формат атрибутов списков к версии 6"""
-        print("Выгружаются списки морфологии раздела Библиотеки:")
-        if os.path.isdir('data/morphology'):
-            for file_name in os.listdir('data/morphology'):
-                os.remove(f"data/morphology/{file_name}")
+        print('Выгружаются списки морфологии раздела "Библиотеки":')
+        if os.path.isdir('data/library/morphology'):
+            for file_name in os.listdir('data/library/morphology'):
+                os.remove(f"data/library/morphology/{file_name}")
         else:
-            os.mkdir('data/morphology')
+            os.makedirs('data/library/morphology')
 
         total, data = self.get_nlist_list('morphology')
 
@@ -180,42 +188,47 @@ class UTM(UtmXmlRpc):
             item.pop('last_update')
             for content in item['content']:
                 content.pop('id')
-            with open(f"data/morphology/{item['name']}.json", "w") as fd:
+            with open(f"data/library/morphology/{item['name']}.json", "w") as fd:
                 json.dump(item, fd, indent=4, ensure_ascii=False)
-            print(f"\tСписок морфологии: {item['name']} выгружен в файл data/morphology/{item['name']}.json")
+            print(f'\tСписок морфологии "{item["name"]}" выгружен в файл "data/library/morphology/{item["name"]}.json"')
 
     def import_morphology(self):
         """Импортировать списки морфологии на UTM"""
-        print("Импорт списков морфологии раздела Библиотеки:")
-        if os.path.isdir('data/morphology'):
-            files_list = os.listdir('data/morphology')
+        print('Импорт списков морфологии раздела "Библиотеки":')
+        if os.path.isdir('data/library/morphology'):
+            files_list = os.listdir('data/library/morphology')
             if files_list:
                 for file_name in files_list:
                     try:
-                        with open(f"data/morphology/{file_name}", "r") as fh:
+                        with open(f"data/library/morphology/{file_name}", "r") as fh:
                             morph_list = json.load(fh)
                     except FileNotFoundError as err:
-                        print(f'\t\033[31mСписок "Морфология" не импортирован!\n\tНе найден файл "data/morphology/{file_name}" с сохранённой конфигурацией!\033[0;0m')
+                        print(f'\t\033[31mСписок "Морфология" не импортирован!\n\tНе найден файл "data/library/morphology/{file_name}" с сохранённой конфигурацией!\033[0;0m')
                         return
 
                     content = morph_list.pop('content')
                     err, result = self.add_nlist(morph_list)
                     if err == 1:
                         print(result, end= ' - ')
-                        err1, result1 = self.update_nlist(self.list_morph[morph_list['name']], morph_list)
+                        result = self.list_morph[morph_list['name']]
+                        err1, result1 = self.update_nlist(result, morph_list)
                         if err1 != 0:
-                            print(result1)
+                            print("\n", f"\033[31m{result1}\033[0m")
                         else:
                             print("\033[32mOk!\033[0;0m")
                     elif err == 2:
-                        print(result)
+                        print(f"\033[31m{result}\033[0m")
+                        continue
                     else:
-                        for item in content:
-                            err2, result2 = self.add_nlist_item(result, item)
-                            if err2 != 0:
-                                print(result2)
                         self.list_morph[morph_list['name']] = result
-                        print(f"\tДобавлен список морфологии: '{morph_list['name']}'.")
+                        print(f'\tДобавлен список морфологии: "{morph_list["name"]}".')
+                    for item in content:
+                        err2, result2 = self.add_nlist_item(result, item)
+                        if err2 == 2:
+                            print(f"\033[31m{result2}\033[0m")
+#                        elif err2 == 1:
+#                            print(result2)
+                    print(f'\t\tСодержимое списка "{morph_list["name"]}" обновлено.')
             else:
                 print("\t\033[33mНет списков морфологии для импорта.\033[0m")
         else:
@@ -223,7 +236,10 @@ class UTM(UtmXmlRpc):
 
     def export_services_list(self):
         """Выгрузить список сервисов раздела библиотеки"""
-        print("Выгружается список сервисов раздела Библиотеки:")
+        print('Выгружается список сервисов раздела "Библиотеки":')
+        if not os.path.isdir('data/library'):
+            os.makedirs('data/library')
+
         data = {}
         _, data = self.get_services_list()
         for item in data['items']:
@@ -231,18 +247,18 @@ class UTM(UtmXmlRpc):
             item.pop('guid')
             item.pop('cc', None)
             item.pop('readonly', None)
-        with open("data/config_services.json", "w") as fh:
+        with open("data/library/config_services.json", "w") as fh:
             json.dump(data['items'], fh, indent=4, ensure_ascii=False)
-        print(f"\tСписок сервисов: выгружен в файл 'data/config_services.json'.")
+        print(f'\tСписок сервисов выгружен в файл "data/library/config_services.json".')
 
     def import_services(self):
         """Импортировать список сервисов раздела библиотеки"""
-        print("Импорт списка сервисов раздела Библиотеки:")
+        print('Импорт списка сервисов раздела "Библиотеки":')
         try:
-            with open("data/config_services.json", "r") as fh:
+            with open("data/library/config_services.json", "r") as fh:
                 services = json.load(fh)
         except FileNotFoundError as err:
-            print(f'\t\033[31mСписок "Сервисы" не импортирован!\n\tНе найден файл "data/config_services.json" с сохранённой конфигурацией!\033[0;0m')
+            print(f'\t\033[31mСписок "Сервисы" не импортирован!\n\tНе найден файл "data/library/config_services.json" с сохранённой конфигурацией!\033[0;0m')
             return
 
         for item in services:
@@ -262,16 +278,16 @@ class UTM(UtmXmlRpc):
                 print(result)
             else:
                 self.services[item['name']] = result
-                print(f"\tСервис '{item['name']}' добавлен.")
+                print(f'\tСервис "{item["name"]}" добавлен.')
 
     def export_IP_lists(self):
         """Выгружает списки IP-адресов и преобразует формат атрибутов списков к версии 6"""
-        print("Выгружаются списки IP-адресов раздела Библиотеки:")
-        if os.path.isdir('data/ip_lists'):
-            for file_name in os.listdir('data/ip_lists'):
-                os.remove(f"data/ip_lists/{file_name}")
+        print('Выгружаются списки IP-адресов раздела "Библиотеки":')
+        if os.path.isdir('data/library/ip_lists'):
+            for file_name in os.listdir('data/library/ip_lists'):
+                os.remove(f"data/library/ip_lists/{file_name}")
         else:
-            os.mkdir('data/ip_lists')
+            os.makedirs('data/library/ip_lists')
 
         total, data = self.get_nlist_list('network')
 
@@ -287,42 +303,45 @@ class UTM(UtmXmlRpc):
             item.pop('last_update')
             for content in item['content']:
                 content.pop('id')
-            with open(f"data/ip_lists/{item['name']}.json", "w") as fd:
+            with open(f"data/library/ip_lists/{item['name']}.json", "w") as fd:
                 json.dump(item, fd, indent=4, ensure_ascii=False)
-            print(f"\tСписок IP-адресов: {item['name']} выгружен в файл data/ip_lists/{item['name']}.json")
+            print(f'\tСписок IP-адресов "{item["name"]}" выгружен в файл "data/library/ip_lists/{item["name"]}.json".')
 
     def import_IP_lists(self):
         """Импортировать списки IP адресов"""
-        print("Импорт списков IP-адресов:")
-        if os.path.isdir('data/ip_lists'):
-            files_list = os.listdir('data/ip_lists')
+        print('Импорт списков IP-адресов раздела "Библиотеки":')
+        if os.path.isdir('data/library/ip_lists'):
+            files_list = os.listdir('data/library/ip_lists')
             if files_list:
                 for file_name in files_list:
                     try:
-                        with open(f"data/ip_lists/{file_name}", "r") as fh:
+                        with open(f"data/library/ip_lists/{file_name}", "r") as fh:
                             ip_list = json.load(fh)
                     except FileNotFoundError as err:
-                        print(f'\t\033[31mСписок "IP-адреса" не импортирован!\n\tНе найден файл "data/ip_lists/{file_name}" с сохранённой конфигурацией!\033[0;0m')
+                        print(f'\t\033[31mСписок "IP-адреса" не импортирован!\n\tНе найден файл "data/library/ip_lists/{file_name}" с сохранённой конфигурацией!\033[0;0m')
                         return
 
                     content = ip_list.pop('content')
                     err, result = self.add_nlist(ip_list)
                     if err == 1:
                         print(result, end= ' - ')
-                        err1, result1 = self.update_nlist(self.list_IP[ip_list['name']], ip_list)
+                        result = self.list_IP[ip_list['name']]
+                        err1, result1 = self.update_nlist(result, ip_list)
                         if err1 != 0:
-                            print(result1)
+                            print("\n", f"\033[31m{result1}\033[0m")
                         else:
                             print("\033[32mOk!\033[0;0m")
                     elif err == 2:
-                        print(result)
+                        print(f"\033[31m{result}\033[0m")
+                        continue
                     else:
-                        for item in content:
-                            err2, result2 = self.add_nlist_item(result, item)
-                            if err2 != 0:
-                                print(result2)
                         self.list_IP[ip_list['name']] = result
-                        print(f"\tДобавлен список IP-адресов: '{ip_list['name']}'.")
+                        print(f'\tДобавлен список IP-адресов: "{ip_list["name"]}".')
+                    for item in content:
+                        err2, result2 = self.add_nlist_item(result, item)
+                        if err2 == 2:
+                            print(f"\033[31m{result2}\033[0m")
+                    print(f'\t\tСодержимое списка "{ip_list["name"]}" обновлено.')
             else:
                 print("\033[33m\tНет списков IP-адресов для импорта.\033[0m")
         else:
@@ -330,12 +349,9 @@ class UTM(UtmXmlRpc):
 
     def export_useragent_lists(self):
         """Выгружает списки useragent и преобразует формат атрибутов списков к версии 6"""
-        print("Выгружаются списки Useragent браузеров раздела Библиотеки:")
-        if os.path.isdir('data/useragent_lists'):
-            for file_name in os.listdir('data/useragent_lists'):
-                os.remove(f"data/useragent_lists/{file_name}")
-        else:
-            os.mkdir('data/useragent_lists')
+        print('Выгружаются список "Useragent браузеров" раздела "Библиотеки":')
+        if not os.path.isdir('data/library'):
+            os.makedirs('data/library')
 
         total, data = self.get_nlist_list('useragent')
 
@@ -351,55 +367,54 @@ class UTM(UtmXmlRpc):
             item.pop('last_update', None)
             for content in item['content']:
                 content.pop('id')
-            with open(f"data/useragent_lists/{item['name']}.json", "w") as fd:
-                json.dump(item, fd, indent=4, ensure_ascii=False)
-            print(f"\tСписок Useragent браузеров: '{item['name']}' выгружен в файл data/useragent_lists/{item['name']}.json")
+        with open("data/library/config_useragents.json", "w") as fd:
+                json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Useragent браузеров" выгружен в файл "data/library/config_useragents.json".')
 
     def import_useragent_lists(self):
         """Импортировать списки Useragent браузеров"""
-        print('Импорт списков "Useragent браузеров" раздела Библиотеки:')
-        if os.path.isdir('data/useragent_lists'):
-            files_list = os.listdir('data/useragent_lists')
-            if files_list:
-                for file_name in files_list:
-                    try:
-                        with open(f"data/useragent_lists/{file_name}", "r") as fh:
-                            useragent_list = json.load(fh)
-                    except FileNotFoundError as err:
-                        print(f'\t\033[31mСписок "Useragent браузеров" не импортирован!\n\tНе найден файл "data/useragent_lists/{file_name}" с сохранённой конфигурацией!\033[0;0m')
-                        return
+        print('Импорт списков "Useragent браузеров" раздела "Библиотеки":')
+        try:
+            with open("data/library/config_useragents.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Useragent браузеров" не импортирован!\n\tНе найден файл "data/library/config_useragents.json" с сохранённой конфигурацией!\033[0;0m')
+            return
 
-                    content = useragent_list.pop('content')
-                    err, result = self.add_nlist(useragent_list)
-                    if err == 1:
-                        print(result, end= ' - ')
-                        err1, result1 = self.update_nlist(self.list_useragent[useragent_list['name']], useragent_list)
-                        if err1 != 0:
-                            print(result1)
-                        else:
-                            print("\033[32mOk!\033[0;0m")
-                    elif err == 2:
-                        print(result)
-                    else:
-                        for item in content:
-                            err2, result2 = self.add_nlist_item(result, item)
-                            if err2 != 0:
-                                print(result2)
-                        self.list_useragent[useragent_list['name']] = result
-                        print(f"\tДобавлен список Useragent: '{useragent_list['name']}'.")
+        if not data:
+            print("\tНет списков Useragent для импорта.")
+            return
+        for item in data:
+            content = item.pop('content')
+            err, result = self.add_nlist(item)
+            if err == 1:
+                print(result, end= ' - ')
+                result = self.list_useragent[item['name']]
+                err1, result1 = self.update_nlist(result, item)
+                if err1 != 0:
+                    print("\n", f"\033[31m{result1}\033[0m")
+                else:
+                    print("\033[32mOk!\033[0;0m")
+            elif err == 2:
+                print(f"\033[31m{result}\033[0m")
+                continue
             else:
-                print("\033[33m\tНет списков Useragent для импорта.\033[0m")
-        else:
-            print("\033[33m\tНет списков Useragent для импорта.\033[0m")
+                self.list_useragent[item['name']] = result
+                print(f'\tДобавлен список Useragent: "{item["name"]}".')
+
+            for agent in content:
+                err2, result2 = self.add_nlist_item(result, agent)
+                if err2 == 2:
+                    print(f"\033[31m{result2}\033[0m")
+#                elif err2 == 1:
+#                    print(result2)
+            print(f'\t\tСодержимое списка "{item["name"]}" обновлено.')
 
     def export_mime_lists(self):
         """Выгружает списки Типов контента и преобразует формат атрибутов списков к версии 6"""
-        print("Выгружаются списки Типов контента (mime типы) раздела Библиотеки:")
-        if os.path.isdir('data/mime_lists'):
-            for file_name in os.listdir('data/mime_lists'):
-                os.remove(f"data/mime_lists/{file_name}")
-        else:
-            os.mkdir('data/mime_lists')
+        print('Выгружается список "Типы контента" (mime типы) раздела "Библиотеки":')
+        if not os.path.isdir('data/library'):
+            os.makedirs('data/library')
 
         total, data = self.get_nlist_list('mime')
 
@@ -415,55 +430,55 @@ class UTM(UtmXmlRpc):
             item.pop('last_update', None)
             for content in item['content']:
                 content.pop('id')
-            with open(f"data/mime_lists/{item['name']}.json", "w") as fd:
-                json.dump(item, fd, indent=4, ensure_ascii=False)
-            print(f"\tСписок Типов контента: '{item['name']}' выгружен в файл data/mime_lists/{item['name']}.json")
+        with open("data/library/config_mime_types.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Типы контента" выгружен в файл "data/library/config_mime_types.json".')
 
     def import_mime_lists(self):
         """Импортировать списки Типов контента"""
-        print("Импорт списков Типа контента:")
-        if os.path.isdir('data/mime_lists'):
-            files_list = os.listdir('data/mime_lists')
-            if files_list:
-                for file_name in files_list:
-                    try:
-                        with open(f"data/mime_lists/{file_name}", "r") as fh:
-                            mime_list = json.load(fh)
-                    except FileNotFoundError as err:
-                        print(f'\t\033[31mСписок "Типы контента" не импортирован!\n\tНе найден файл "data/mime_lists/{file_name}" с сохранённой конфигурацией!\033[0;0m')
-                        return
+        print('Импорт списка "Типы контента" раздела "Библиотеки":')
+        try:
+            with open("data/library/config_mime_types.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Типы контента" не импортирован!\n\tНе найден файл "data/library/config_mime_types.json" с сохранённой конфигурацией!\033[0;0m')
+            return
 
-                    content = mime_list.pop('content')
-                    err, result = self.add_nlist(mime_list)
-                    if err == 1:
-                        print(result, end= ' - ')
-                        err1, result1 = self.update_nlist(self.list_mime[mime_list['name']], mime_list)
-                        if err1 != 0:
-                            print(result1)
-                        else:
-                            print("\033[32mOk!\033[0;0m")
-                    elif err == 2:
-                        print(result)
-                    else:
-                        for item in content:
-                            err2, result2 = self.add_nlist_item(result, item)
-                            if err2 != 0:
-                                print(result2)
-                        self.list_mime[mime_list['name']] = result
-                        print(f"\tДобавлен список Типов контента: '{mime_list['name']}'.")
+        if not data:
+            print('\033[33m\tНет списка "Типы контента" для импорта.\033[0m')
+            return
+        for item in data:
+            content = item.pop('content')
+            err, result = self.add_nlist(item)
+            if err == 1:
+                print(result, end= ' - ')
+                result = self.list_mime[item['name']]
+                err1, result1 = self.update_nlist(result, item)
+                if err1 != 0:
+                    print("\n", f"\033[31m{result1}\033[0m")
+                else:
+                    print("\033[32mOk!\033[0;0m")
+            elif err == 2:
+                print(f"\033[31m{result}\033[0m")
+                continue
             else:
-                print("\033[33m\tНет списков Типа контента для импорта.\033[0m")
-        else:
-            print("\033[33m\tНет списков Типов контента для импорта.\033[0m")
+                self.list_mime[item['name']] = result
+                print(f"\tДобавлен список типов контента '{item['name']}'.")
+
+            for x in content:
+                err2, result2 = self.add_nlist_item(result, x)
+                if err2 == 2:
+                   print(f"\033[31m{result2}\033[0m")
+            print(f'\t\tСодержимое списка "{item["name"]}" обновлено.')
 
     def export_url_lists(self):
         """Выгружает списки URL и преобразует формат атрибутов списков к версии 6"""
-        print("Выгружаются списки URL раздела Библиотеки:")
-        if os.path.isdir('data/url'):
-            for file_name in os.listdir('data/url'):
-                os.remove(f"data/url/{file_name}")
+        print('Выгружаются "Списки URL" раздела "Библиотеки":')
+        if os.path.isdir('data/library/url'):
+            for file_name in os.listdir('data/library/url'):
+                os.remove(f"data/library/url/{file_name}")
         else:
-            os.mkdir('data/url')
+            os.makedirs('data/library/url')
 
         total, data = self.get_nlist_list('url')
 
@@ -479,42 +494,45 @@ class UTM(UtmXmlRpc):
             item.pop('last_update', None)
             for content in item['content']:
                 content.pop('id')
-            with open(f"data/url/{item['name']}.json", "w") as fd:
+            with open(f"data/library/url/{item['name']}.json", "w") as fd:
                 json.dump(item, fd, indent=4, ensure_ascii=False)
-            print(f"\tСписок URL: {item['name']} выгружен в файл data/url/{item['name']}.json")
+            print(f"\tСписок URL {item['name']} выгружен в файл data/library/url/{item['name']}.json")
 
     def import_url_lists(self):
         """Импортировать списки URL на UTM"""
-        print("Импорт списков URL:")
-        if os.path.isdir('data/url'):
-            files_list = os.listdir('data/url')
+        print('Импорт списков URL раздела "Библиотеки":')
+        if os.path.isdir('data/library/url'):
+            files_list = os.listdir('data/library/url')
             if files_list:
                 for file_name in files_list:
                     try:
-                        with open(f"data/url/{file_name}", "r") as fh:
+                        with open(f"data/library/url/{file_name}", "r") as fh:
                             url_list = json.load(fh)
                     except FileNotFoundError as err:
-                        print(f'\t\033[31mСписок "Списки URL" не импортирован!\n\tНе найден файл "data/url/{file_name}" с сохранённой конфигурацией!\033[0;0m')
+                        print(f'\t\033[31mСписок "Списки URL" не импортирован!\n\tНе найден файл "data/library/url/{file_name}" с сохранённой конфигурацией!\033[0;0m')
                         return
 
                     content = url_list.pop('content')
                     err, result = self.add_nlist(url_list)
                     if err == 1:
                         print(result, end= ' - ')
-                        err1, result1 = self.update_nlist(self.list_url[url_list['name']], url_list)
+                        result = self.list_url[url_list['name']]
+                        err1, result1 = self.update_nlist(result, url_list)
                         if err1 != 0:
-                            print(result1)
+                            print("\n", f'\033[31m{result1}\033[0m')
                         else:
                             print("\033[32mOk!\033[0;0m")
                     elif err == 2:
-                        print(result)
+                        print(f"\033[31m{result}\033[0m")
+                        continue
                     else:
-                        for item in content:
-                            err2, result2 = self.add_nlist_item(result, item)
-                            if err2 != 0:
-                                print(result2)
                         self.list_url[url_list['name']] = result
-                        print(f"\tДобавлен список URL: '{url_list['name']}'.")
+                        print(f'\tДобавлен список URL: "{url_list["name"]}".')
+                    for item in content:
+                        err2, result2 = self.add_nlist_item(result, item)
+                        if err2 == 2:
+                            print(f"\033[31m{result2}\033[0m")
+                    print(f'\t\tСодержимое списка "{url_list["name"]}" обновлено.')
             else:
                 print("\033[33m\tНет списков URL для импорта.\033[0m")
         else:
@@ -522,12 +540,9 @@ class UTM(UtmXmlRpc):
 
     def export_time_restricted_lists(self):
         """Выгружает содержимое календарей и преобразует формат атрибутов списков к версии 6"""
-        print("Выгружаются списки Календарей раздела Библиотеки:")
-        if os.path.isdir('data/calendars'):
-            for file_name in os.listdir('data/calendars'):
-                os.remove(f"data/calendars/{file_name}")
-        else:
-            os.mkdir('data/calendars')
+        print('Выгружается список "Календари" раздела "Библиотеки":')
+        if not os.path.isdir('data/library'):
+            os.makedirs('data/library')
 
         total, data = self.get_nlist_list('timerestrictiongroup')
 
@@ -546,81 +561,86 @@ class UTM(UtmXmlRpc):
                 content.pop('fixed_date_from', None)
                 content.pop('fixed_date_to', None)
                 content.pop('fixed_date', None)
-            with open(f"data/calendars/{item['name']}.json", "w") as fd:
-                json.dump(item, fd, indent=4, ensure_ascii=False)
-            print(f"\tЭлемент календаря: '{item['name']}' выгружен в файл data/calendars/{item['name']}.json")
+        with open("data/library/config_calendars.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Календари" выгружен в файл "data/library/config_calendars.json".')
 
     def import_time_restricted_lists(self):
         """Импортировать содержимое календарей"""
-        print("Импорт списков Календарей:")
-        if os.path.isdir('data/calendars'):
-            files_list = os.listdir('data/calendars')
-            if files_list:
-                for file_name in files_list:
-                    try:
-                        with open(f"data/calendars/{file_name}", "r") as fh:
-                            cal_list = json.load(fh)
-                    except FileNotFoundError as err:
-                        print(f'\t\033[31mСписок "Календари" не импортирован!\n\tНе найден файл "data/calendars/{file_name}" с сохранённой конфигурацией!\033[0;0m')
-                        return
+        print('Импорт списка "Календари" раздела "Библиотеки":')
+        try:
+            with open("data/library/config_calendars.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Календари" не импортирован!\n\tНе найден файл "data/library/config_calendars.json" с сохранённой конфигурацией!\033[0;0m')
+            return
 
-                    content = cal_list.pop('content')
-                    err, result = self.add_nlist(cal_list)
-                    if err == 1:
-                        print(result, end= ' - ')
-                        err1, result1 = self.update_nlist(self.list_calendar[cal_list['name']], cal_list)
-                        if err1 != 0:
-                            print("\n", result1)
-                        else:
-                            print("\033[32mOk!\033[0;0m")
-                    elif err == 2:
-                        print(result)
-                    else:
-                        for item in content:
-                            err2, result2 = self.add_nlist_item(result, item)
-                            if err2 != 0:
-                                print(result2)
-                        self.list_calendar[cal_list['name']] = result
-                        print(f"\tДобавлен элемент календаря: '{cal_list['name']}'.")
-            else:
-                print("\033[33m\tНет списков Календарей для импорта.\033[0m")
-        else:
+        if not data:
             print("\033[33m\tНет списков Календарей для импорта.\033[0m")
-
+            return
+        for item in data:
+            content = item.pop('content')
+            err, result = self.add_nlist(item)
+            if err == 1:
+                print(result, end= ' - ')
+                result = self.list_calendar[item['name']]
+                err1, result1 = self.update_nlist(result, item)
+                if err1 != 0:
+                    print("\n", f"\033[31m{result1}\033[0m")
+                else:
+                    print("\033[32mOk!\033[0;0m")
+            elif err == 2:
+                print(f"\033[31m{result}\033[0m")
+                continue
+            else:
+                self.list_calendar[item['name']] = result
+                print(f'\tДобавлен элемент календаря: "{item["name"]}".')
+            for x in content:
+                err2, result2 = self.add_nlist_item(result, x)
+                if err2 == 2:
+                    print(f"\033[31m{result2}\033[0m")
+            print(f'\t\tСодержимое списка "{item["name"]}" обновлено.')
+            
     def export_shaper_list(self):
         """Выгрузить список Полос пропускания раздела библиотеки"""
         print('Выгружается список "Полосы пропускания" раздела "Библиотеки":')
-        data = {}
+        if not os.path.isdir('data/library'):
+            os.makedirs('data/library')
+
         _, data = self.get_shaper_list()
+
         for item in data:
             item.pop('id')
             item.pop('guid')
             item.pop('cc', None)
-        with open("data/config_shaper.json", "w") as fh:
+        with open("data/library/config_shaper.json", "w") as fh:
             json.dump(data, fh, indent=4, ensure_ascii=False)
-        print(f'\tСписок "Полосы пропускания" выгружен в файл "data/config_shaper.json".')
+        print(f'\tСписок "Полосы пропускания" выгружен в файл "data/library/config_shaper.json".')
 
     def import_shaper(self):
         """Импортировать список Полос пропускания раздела библиотеки"""
         print('Импорт списка "Полосы пропускания" раздела "Библиотеки":')
         try:
-            with open("data/config_shaper.json", "r") as fh:
-                shaper = json.load(fh)
+            with open("data/library/config_shaper.json", "r") as fh:
+                data = json.load(fh)
         except FileNotFoundError as err:
-            print(f'\t\033[31mСписок "Полосы пропускания" не импортирован!\n\tНе найден файл "data/config_shaper.json" с сохранённой конфигурацией!\033[0;0m')
+            print(f'\t\033[31mСписок "Полосы пропускания" не импортирован!\n\tНе найден файл "data/library/config_shaper.json" с сохранённой конфигурацией!\033[0;0m')
             return
 
-        for item in shaper:
+        if not data:
+            print("\tНет полос пропускания для импорта.")
+            return
+        for item in data:
             err, result = self.add_shaper(item)
             if err == 1:
                 print(result, end= ' - ')
                 err1, result1 = self.update_shaper(self.shaper[item['name']], item)
                 if err1 != 0:
-                    print("\n", result1)
+                    print("\n", f"\033[31m{result1}\033[0m")
                 else:
                     print("\033[32mOk!\033[0;0m")
             elif err == 2:
-                print(result)
+                print(f"\033[31m{result}\033[0m")
             else:
                 self.shaper[item['name']] = result
                 print(f'\tПолоса пропускания "{item["name"]}" добавлена.')
@@ -628,23 +648,26 @@ class UTM(UtmXmlRpc):
     def export_scada_list(self):
         """Выгрузить список профилей АСУ ТП раздела библиотеки"""
         print('Выгружается список "Профили АСУ ТП" раздела "Библиотеки":')
-        data = {}
+        if not os.path.isdir('data/library'):
+            os.makedirs('data/library')
+
         _, data = self.get_scada_list()
+
         for item in data:
             item.pop('id')
             item.pop('cc', None)
-        with open("data/config_scada.json", "w") as fh:
+        with open("data/library/config_scada.json", "w") as fh:
             json.dump(data, fh, indent=4, ensure_ascii=False)
-        print(f'\tСписок "Профили АСУ ТП" выгружен в файл "data/config_scada.json".')
+        print(f'\tСписок "Профили АСУ ТП" выгружен в файл "data/library/config_scada.json".')
 
     def import_scada_list(self):
         """Импортировать список профилей АСУ ТП раздела библиотеки"""
         print('Импорт списка "Профили АСУ ТП" раздела "Библиотеки":')
         try:
-            with open("data/config_scada.json", "r") as fh:
+            with open("data/library/config_scada.json", "r") as fh:
                 scada = json.load(fh)
         except FileNotFoundError as err:
-            print(f'\t\033[31mСписок "Профили АСУ ТП" не импортирован!\n\tНе найден файл "data/config_scada.json" с сохранённой конфигурацией!\033[0;0m')
+            print(f'\t\033[31mСписок "Профили АСУ ТП" не импортирован!\n\tНе найден файл "data/library/config_scada.json" с сохранённой конфигурацией!\033[0;0m')
             return
 
         for item in scada:
@@ -653,11 +676,11 @@ class UTM(UtmXmlRpc):
                 print(result, end= ' - ')
                 err1, result1 = self.update_scada(self.list_scada[item['name']], item)
                 if err1 != 0:
-                    print("\n", result1)
+                    print("\n", f"\033[31m{result1}\033[0m")
                 else:
                     print("\033[32mOk!\033[0;0m")
             elif err == 2:
-                print(result)
+                print(f"\033[31m{result}\033[0m")
             else:
                 self.list_scada[item['name']] = result
                 print(f'\tПрофиль АСУ ТП "{item["name"]}" добавлен.')
@@ -668,26 +691,25 @@ class UTM(UtmXmlRpc):
         Выгружает файл HTML только для изменённых страниц шаблонов.
         """
         print('Выгружается список "Шаблоны страниц" раздела "Библиотеки":')
-        if os.path.isdir('data/templates'):
-            for file_name in os.listdir('data/templates'):
-                os.remove(f"data/templates/{file_name}")
+        if os.path.isdir('data/library/templates'):
+            for file_name in os.listdir('data/library/templates'):
+                os.remove(f"data/library/templates/{file_name}")
         else:
-            os.mkdir('data/templates')
+            os.makedirs('data/library/templates')
 
-        data = {}
         _, data = self.get_templates_list()
         for item in data:
             _, html_data = self.get_template_data(item['type'], item['id'])
             if html_data:
-                with open(f"data/templates/{item['name']}.html", "w") as fh:
+                with open(f"data/library/templates/{item['name']}.html", "w") as fh:
                     fh.write(html_data)
-                print(f'\tСтраница HTML для шаблона "{item["name"]}" выгружена в файл "data/templates/{item["name"]}.html".')
+                print(f'\tСтраница HTML для шаблона "{item["name"]}" выгружена в файл "data/library/templates/{item["name"]}.html".')
             item.pop('id')
             item.pop('last_update', None)
             item.pop('cc', None)
-        with open("data/templates/config_templates.json", "w") as fh:
+        with open("data/library/templates/config_templates.json", "w") as fh:
             json.dump(data, fh, indent=4, ensure_ascii=False)
-        print(f'\tСписок "Шаблоны страниц" выгружен в файл "data/templates/config_templates.json".')
+        print('\tСписок "Шаблоны страниц" выгружен в файл "data/library/templates/config_templates.json".')
 
     def import_templates_list(self):
         """
@@ -696,40 +718,37 @@ class UTM(UtmXmlRpc):
         """
         print('Импорт списка "Шаблоны страниц" раздела "Библиотеки":')
         try:
-            with open("data/templates/config_templates.json", "r") as fh:
+            with open("data/library/templates/config_templates.json", "r") as fh:
                 templates = json.load(fh)
         except FileNotFoundError as err:
-            print(f'\t\033[31mСписок "Шаблоны страниц" не импортирован!\n\tНе найден файл "data/templates/config_templates.json" с сохранённой конфигурацией!\033[0;0m')
+            print('\t\033[31mСписок "Шаблоны страниц" не импортирован!\n\tНе найден файл "data/library/templates/config_templates.json" с сохранённой конфигурацией!\033[0;0m')
             return
 
-        html_files = os.listdir('data/templates')
+        html_files = os.listdir('data/library/templates')
 
         for item in templates:
             err, result = self.add_template(item)
             if err == 1:
                 print(result, end= ' - ')
-                err1, result1 = self.update_template(self.list_templates[item['name']], item)
+                result = self.list_templates[item['name']]
+                err1, result1 = self.update_template(result, item)
                 if err1 != 0:
-                    print("\n", result1)
+                    print("\n", f"\033[31m{result1}\033[0m")
                 else:
                     print("\033[32mOk!\033[0;0m")
-                if f"{item['name']}.html" in html_files:
-                    with open(f"data/templates/{item['name']}.html", "br") as fh:
-                        file_data = fh.read()
-                    _, result2 = self.set_template_data(self.list_templates[item['name']], file_data)
-                    if result2:
-                        print(f'\t\tСтраница "{item["name"]}.html" добавлена.')
             elif err == 2:
-                print(result)
+                print(f"\033[31m{result}\033[0m")
+                continue
             else:
                 self.list_templates[item['name']] = result
                 print(f'\tШаблон страницы "{item["name"]}" добавлен.')
-                if f"{item['name']}.html" in html_files:
-                    with open(f"data/templates/{item['name']}.html", "br") as fh:
-                        file_data = fh.read()
-                    _, result2 = self.set_template_data(result, file_data)
-                    if result2:
-                        print(f'\t\tСтраница "{item["name"]}.html" добавлена.')
+
+            if f"{item['name']}.html" in html_files:
+                with open(f"data/library/templates/{item['name']}.html", "br") as fh:
+                    file_data = fh.read()
+                _, result2 = self.set_template_data(result, file_data)
+                if result2:
+                    print(f'\t\tСтраница "{item["name"]}.html" добавлена.')
 
     def export_categories_groups(self):
         """Выгружает список "Категории URL" и преобразует формат атрибутов списков к версии 6"""
@@ -743,6 +762,10 @@ class UTM(UtmXmlRpc):
             'URL_CATEGORY_VIRUSCHECK_RECOMMENDED': 'Recommended for virus check'
         }
         group_name_revert = {v: k for k, v in group_name.items()}
+
+        if not os.path.isdir('data/library'):
+            os.makedirs('data/library')
+
         total, data = self.get_nlist_list('urlcategorygroup')
 
         for item in data:
@@ -761,21 +784,24 @@ class UTM(UtmXmlRpc):
                     content['category_id'] = content.pop('value')
                     content['name'] = self._categories[int(content['category_id'])]
 
-        with open("data/config_categories_url.json", "w") as fd:
+        with open("data/library/config_categories_url.json", "w") as fd:
             json.dump(data, fd, indent=4, ensure_ascii=False)
-        print(f'\tСписок "Категории URL" выгружен в файл data/config_categories_url.json')
+        print(f'\tСписок "Категории URL" выгружен в файл "data/library/config_categories_url.json".')
 
     def import_categories_groups(self):
         """Импортировать список "Категории URL" на UTM"""
         print('Импорт списка "Категории URL":')
         try:
-            with open("data/config_categories_url.json", "r") as fh:
-                category_list = json.load(fh)
+            with open("data/library/config_categories_url.json", "r") as fh:
+                data = json.load(fh)
         except FileNotFoundError as err:
-            print(f'\t\033[31mСписок "Категории URL" не импортирован!\n\tНе найден файл "data/config_categories_url.json" с сохранённой конфигурацией!\033[0;0m')
+            print('\t\033[31mСписок "Категории URL" не импортирован!\n\tНе найден файл "data/library/config_categories_url.json" с сохранённой конфигурацией!\033[0;0m')
             return
 
-        for item in category_list:
+        if not data:
+            print("\tНет групп URL категорий для импорта.")
+            return
+        for item in data:
             content = item.pop('content')
             if item['name'] not in ['Parental Control', 'Productivity', 'Safe categories', 'Threats',
                                     'Recommended for morphology checking', 'Recommended for virus check']:
@@ -783,7 +809,7 @@ class UTM(UtmXmlRpc):
                 if err == 1:
                     print(result, "\033[32mOk!\033[0;0m")
                 elif err == 2:
-                    print(result)
+                    print(f"\033[31m{result}\033[0m")
                 else:
                     self.list_urlcategorygroup[item['name']] = result
                     print(f'\tГруппа URL категорий "{item["name"]}" добавлена.')
@@ -791,7 +817,7 @@ class UTM(UtmXmlRpc):
                         try:
                             err2, result2 = self.add_nlist_item(result, category)
                             if err2 != 0:
-                                print(f'\t{result2}')
+                                print(f'\033[31m{result2}\033[0m')
                             else:
                                 print(f'\t\tДобавлена категория: "{category["name"]}".')
                         except:
@@ -800,6 +826,9 @@ class UTM(UtmXmlRpc):
     def export_application_groups(self):
         """Выгружает список "Приложения" и преобразует формат атрибутов списков к версии 6"""
         print('Выгружается список "Приложения" раздела "Библиотеки":')
+        if not os.path.isdir('data/library'):
+            os.makedirs('data/library')
+
         total, data = self.get_nlist_list('applicationgroup')
 
         for item in data:
@@ -814,27 +843,30 @@ class UTM(UtmXmlRpc):
                 content.pop('id')
                 content['value'] = self.l7_apps.get(content['value'], content['value'])
 
-        with open("data/config_applications.json", "w") as fd:
+        with open("data/library/config_applications.json", "w") as fd:
             json.dump(data, fd, indent=4, ensure_ascii=False)
-        print(f'\tСписок "Приложения" выгружен в файл data/config_applications.json')
+        print(f'\tСписок "Приложения" выгружен в файл "data/library/config_applications.json".')
 
     def import_application_groups(self):
         """Импортировать список "Приложения" на UTM"""
-        print('Импорт списка "Приложения":')
+        print('Импорт списка "Приложения" раздела "Библиотеки":')
         try:
-            with open("data/config_applications.json", "r") as fh:
-                app_list = json.load(fh)
+            with open("data/library/config_applications.json", "r") as fh:
+                data = json.load(fh)
         except FileNotFoundError as err:
-            print(f'\t\033[31mСписок "Приложения" не импортирован!\n\tНе найден файл "data/config_applications.json" с сохранённой конфигурацией!\033[0;0m')
+            print('\t\033[31mСписок "Приложения" не импортирован!\n\tНе найден файл "data/library/config_applications.json" с сохранённой конфигурацией!\033[0;0m')
             return
 
-        for item in app_list:
+        if not data:
+            print("\tНет групп приложений для импорта.")
+            return
+        for item in data:
             content = item.pop('content')
             err, result = self.add_nlist(item)
             if err == 1:
                 print(result, "\033[32mOk!\033[0;0m")
             elif err == 2:
-                print(result)
+                print(f"\033[31m{result}\033[0m")
             else:
                 self.list_applicationgroup[item['name']] = result
                 print(f'\tГруппа приложений "{item["name"]}" добавлена.')
@@ -842,11 +874,11 @@ class UTM(UtmXmlRpc):
                     try:
                         err2, result2 = self.add_nlist_item(result, self.l7_apps[app['value']])
                         if err2 != 0:
-                            print(f'\t{result2}')
+                            print(f'\033[31m{result2}\033[0m')
                         else:
                             print(f'\t\tДобавлено приложение: "{app["value"]}".')
                     except:
-                        print(f'\t\tПриложение "{app["value"]}" не будет добавлена, так как не существует на целевой системе.')
+                        print(f'\t\t033[33mПриложение "{app["value"]}" не будет добавлена, так как не существует на целевой системе.\033[0m')
 
     def export_nlist_groups(self, list_type):
         """Выгружает списки: "Почтовые адреса", "Номера телефонов" и преобразует формат списков к версии 6"""
@@ -855,6 +887,9 @@ class UTM(UtmXmlRpc):
             'phonegroup': "Номера телефонов"
             }
         print(f'Выгружается список "{list_name[list_type]}" раздела "Библиотеки":')
+        if not os.path.isdir('data/library'):
+            os.makedirs('data/library')
+
         total, data = self.get_nlist_list(list_type)
 
         for item in data:
@@ -868,9 +903,9 @@ class UTM(UtmXmlRpc):
             for content in item['content']:
                 content.pop('id')
 
-        with open(f"data/config_{list_type}.json", "w") as fd:
+        with open(f"data/library/config_{list_type}.json", "w") as fd:
             json.dump(data, fd, indent=4, ensure_ascii=False)
-        print(f'\tСписок "{list_name[list_type]}" выгружен в файл data/config_{list_type}.json')
+        print(f'\tСписок "{list_name[list_type]}" выгружен в файл "data/library/config_{list_type}.json".')
 
     def import_nlist_groups(self, list_type):
         """Импортировать списки: "Почтовые адреса" и "Номера телефонов" на UTM"""
@@ -880,34 +915,40 @@ class UTM(UtmXmlRpc):
             }
         print(f'Импорт списка "{list_name[list_type][0]}":')
         try:
-            with open(f"data/config_{list_type}.json", "r") as fh:
-                email_list = json.load(fh)
+            with open(f"data/library/config_{list_type}.json", "r") as fh:
+                data = json.load(fh)
         except FileNotFoundError as err:
-            print(f'\t\033[31mСписок "{list_name[list_type][0]}" не импортирован!\n\tНе найден файл "data/config_{list_type}.json" с сохранённой конфигурацией!\033[0;0m')
+            print(f'\t\033[31mСписок "{list_name[list_type][0]}" не импортирован!\n\tНе найден файл "data/library/config_{list_type}.json" с сохранённой конфигурацией!\033[0;0m')
             return
 
-        for item in email_list:
+        if not data:
+            print(f"\tНет {list_name[list_type][1]} для импорта.")
+            return
+        for item in data:
             content = item.pop('content')
             err, result = self.add_nlist(item)
             if err == 1:
                 print(result, "\033[32mOk!\033[0;0m")
             elif err == 2:
-                print(result)
+                print(f"\033[31m{result}\033[0m")
             else:
                 print(f'\tГруппа {list_name[list_type][1]} "{item["name"]}" добавлена.')
                 for email in content:
                     try:
                         err2, result2 = self.add_nlist_item(result, email)
                         if err2 != 0:
-                            print(f'\t{result2}')
+                            print(f'\033[31m{result2}\033[0m')
                         else:
                             print(f'\t\tДобавлен {list_name[list_type][2]}: "{email["value"]}".')
                     except:
-                        print(f'\t\tПочтовый адрес "{email["value"]}" не будет добавлен, так как произошла ошибка при добавлении.')
+                        print(f'\t\t033[31mПочтовый адрес "{email["value"]}" не будет добавлен, так как произошла ошибка при добавлении.\033[0m')
 
     def export_ips_profiles(self):
         """Выгружает списки: "Профили СОВ" и преобразует формат списков к версии 6"""
         print(f'Выгружается список "Профили СОВ" раздела "Библиотеки":')
+        if not os.path.isdir('data/library'):
+            os.makedirs('data/library')
+
         total, data = self.get_nlist_list('ipspolicy')
 
         for item in data:
@@ -928,29 +969,32 @@ class UTM(UtmXmlRpc):
                 if 'threat_level' in content.keys():
                     content['threat'] = content.pop('threat_level')
 
-        with open(f"data/config_ips_profiles.json", "w") as fd:
+        with open(f"data/library/config_ips_profiles.json", "w") as fd:
             json.dump(data, fd, indent=4, ensure_ascii=False)
-        print(f'\tСписок "Профили СОВ" выгружен в файл data/config_ips_profiles.json')
+        print(f'\tСписок "Профили СОВ" выгружен в файл "data/library/config_ips_profiles.json".')
 
     def import_ips_profiles(self):
         """Импортировать списки: "Профили СОВ" на UTM"""
         print(f'Импорт списка "Профили СОВ":')
         try:
-            with open(f"data/config_ips_profiles.json", "r") as fh:
+            with open(f"data/library/config_ips_profiles.json", "r") as fh:
                 email_list = json.load(fh)
         except FileNotFoundError as err:
-            print(f'\t\033[31mСписок "Профили СОВ" не импортирован!\n\tНе найден файл "data/config_ips_profiles.json" с сохранённой конфигурацией!\033[0;0m')
+            print(f'\t\033[31mСписок "Профили СОВ" не импортирован!\n\tНе найден файл "data/library/config_ips_profiles.json" с сохранённой конфигурацией!\033[0;0m')
             return
 
         _, idps = self.get_idps_signatures_list()
 
+        if not data:
+            print(f"\tНет профилей СОВ для импорта.")
+            return
         for item in email_list:
             content = item.pop('content')
             err, result = self.add_nlist(item)
             if err == 1:
                 print(result, "\033[32mOk!\033[0;0m")
             elif err == 2:
-                print(result)
+                print(f"\033[31m{result}\033[0m")
             else:
                 print(f'\tПрофиль СОВ "{item["name"]}" добавлен.')
                 for signature in content:
@@ -958,44 +1002,50 @@ class UTM(UtmXmlRpc):
                         signature['id'] = idps[signature['msg']]
                         err2, result2 = self.add_nlist_item(result, {'id': signature['id']})
                         if err2 == 1:
-                            print(f'\t{result2}')
+                            print(f'{result2}')
                         else:
                             print(f'\t\tДобавлена сигнатура: "{signature["msg"]}".')
                     except:
-                        print(f'\t\tСигнатура "{signature["msg"]}":\n\t\t\tне будет добавлена, так как отсутствует на целевой системе!')
+                        print(f'\t\t\033[33mСигнатура "{signature["msg"]}":\n\t\t\tне будет добавлена, так как отсутствует на целевой системе!\033[0m')
 
     def export_notification_profiles_list(self):
         """Выгрузить список профилей оповещения раздела библиотеки"""
         print('Выгружается список "Профили оповещений" раздела "Библиотеки":')
-        data = {}
+        if not os.path.isdir('data/library'):
+            os.makedirs('data/library')
+
         _, data = self.get_notification_profiles_list()
+
         for item in data:
             item.pop('cc', None)
-        with open("data/config_notification_profiles.json", "w") as fh:
+        with open("data/library/config_notification_profiles.json", "w") as fh:
             json.dump(data, fh, indent=4, ensure_ascii=False)
-        print(f'\tСписок "Профили оповещений" выгружен в файл "data/config_notification_profiles.json".')
+        print(f'\tСписок "Профили оповещений" выгружен в файл "data/library/config_notification_profiles.json".')
 
     def import_notification_profiles(self):
         """Импортировать список профилей оповещения раздела библиотеки"""
         print('Импорт списка "Профили оповещений" раздела "Библиотеки":')
         try:
-            with open("data/config_notification_profiles.json", "r") as fh:
-                profiles = json.load(fh)
+            with open("data/library/config_notification_profiles.json", "r") as fh:
+                data = json.load(fh)
         except FileNotFoundError as err:
-            print(f'\t\033[31mСписок "Профили оповещений" не импортирован!\n\tНе найден файл "data/config_notification_profiles.json" с сохранённой конфигурацией!\033[0;0m')
+            print(f'\t\033[31mСписок "Профили оповещений" не импортирован!\n\tНе найден файл "data/library/config_notification_profiles.json" с сохранённой конфигурацией!\033[0;0m')
             return
 
-        for item in profiles:
+        if not data:
+            print(f"\tНет профилей оповещения для импорта.")
+            return
+        for item in data:
             err, result = self.add_notification_profile(item)
             if err == 1:
                 print(result, end= ' - ')
                 err1, result1 = self.update_notification_profile(item)
                 if err1 != 0:
-                    print("\n", result1)
+                    print("\n", f"\033[31m{result1}\033[0m")
                 else:
                     print("\033[32mOk!\033[0;0m")
             elif err == 2:
-                print(result)
+                print(f"\033[31m{result}\033[0m")
             else:
                 self.list_notifications[item['name']] = result
                 print(f'\tПрофиль оповещения "{item["name"]}" добавлен.')
@@ -1003,36 +1053,42 @@ class UTM(UtmXmlRpc):
     def export_netflow_profiles_list(self):
         """Выгрузить список профилей netflow раздела библиотеки"""
         print('Выгружается список "Профили netflow" раздела "Библиотеки":')
-        data = {}
+        if not os.path.isdir('data/library'):
+            os.makedirs('data/library')
+
         _, data = self.get_netflow_profiles_list()
+
         for item in data:
             item.pop('cc', None)
-        with open("data/config_netflow_profiles.json", "w") as fh:
+        with open("data/library/config_netflow_profiles.json", "w") as fh:
             json.dump(data, fh, indent=4, ensure_ascii=False)
-        print(f'\tСписок "Профили netflow" выгружен в файл "data/config_netflow_profiles.json".')
+        print(f'\tСписок "Профили netflow" выгружен в файл "data/library/config_netflow_profiles.json".')
 
     def import_netflow_profiles(self):
         """Импортировать список профилей netflow раздела библиотеки"""
         print('Импорт списка "Профили netflow" раздела "Библиотеки":')
         try:
-            with open("data/config_netflow_profiles.json", "r") as fh:
-                profiles = json.load(fh)
+            with open("data/library/config_netflow_profiles.json", "r") as fh:
+                data = json.load(fh)
         except FileNotFoundError as err:
-            print(f'\t\033[31mСписок "Профили netflow" не импортирован!\n\tНе найден файл "data/config_netflow_profiles.json" с сохранённой конфигурацией!\033[0;0m')
+            print(f'\t\033[31mСписок "Профили netflow" не импортирован!\n\tНе найден файл "data/library/config_netflow_profiles.json" с сохранённой конфигурацией!\033[0;0m')
             return
 
-        for item in profiles:
+        if not data:
+            print(f"\tНет профилей netflow для импорта.")
+            return
+        for item in data:
             err, result = self.add_netflow_profile(item)
             if err == 1:
                 print(result, end= ' - ')
                 item['id'] = self.list_netflow[item['name']]
                 err1, result1 = self.update_netflow_profile(item)
                 if err1 != 0:
-                    print("\n", result1)
+                    print("\n", f"\033[31m{result1}\033[0m")
                 else:
                     print("\033[32mOk!\033[0;0m")
             elif err == 2:
-                print(result)
+                print(f"\033[31m{result}\033[0m")
             else:
                 self.list_netflow[item['name']] = result
                 print(f'\tПрофиль netflow "{item["name"]}" добавлен.')
@@ -1041,37 +1097,42 @@ class UTM(UtmXmlRpc):
         """Выгрузить список профилей SSL раздела библиотеки"""
         if self.version.startswith('6'):
             print('Выгружается список "Профили SSL" раздела "Библиотеки":')
-            data = {}
+            if not os.path.isdir('data/library'):
+                os.makedirs('data/library')
+
             _, data = self.get_ssl_profiles_list()
             for item in data:
                 item.pop('cc', None)
-            with open("data/config_ssl_profiles.json", "w") as fh:
+            with open("data/library/config_ssl_profiles.json", "w") as fh:
                 json.dump(data, fh, indent=4, ensure_ascii=False)
-            print(f'\tСписок "Профили SSL" выгружен в файл "data/config_ssl_profiles.json".')
+            print(f'\tСписок "Профили SSL" выгружен в файл "data/library/config_ssl_profiles.json".')
 
     def import_ssl_profiles(self):
         """Импортировать список профилей SSL раздела библиотеки"""
         if self.version.startswith('6'):
             print('Импорт списка "Профили SSL" раздела "Библиотеки":')
             try:
-                with open("data/config_ssl_profiles.json", "r") as fh:
-                    profiles = json.load(fh)
+                with open("data/library/config_ssl_profiles.json", "r") as fh:
+                    data = json.load(fh)
             except FileNotFoundError as err:
-                print(f'\t\033[31mСписок "Профили SSL" не импортирован!\n\tНе найден файл "data/config_ssl_profiles.json" с сохранённой конфигурацией!\033[0;0m')
+                print(f'\t\033[31mСписок "Профили SSL" не импортирован!\n\tНе найден файл "data/library/config_ssl_profiles.json" с сохранённой конфигурацией!\033[0;0m')
                 return
 
-            for item in profiles:
+            if not data:
+                print(f"\tНет профилей netflow для импорта.")
+                return
+            for item in data:
                 err, result = self.add_ssl_profile(item)
                 if err == 1:
                     print(result, end= ' - ')
                     item['id'] = self.list_ssl_profiles[item['name']]
                     err1, result1 = self.update_ssl_profile(item)
                     if err1 != 0:
-                        print("\n", result1)
+                        print("\n", f"\033[31m{result1}\033[0m")
                     else:
                         print("\033[32mOk!\033[0;0m")
                 elif err == 2:
-                    print(result)
+                    print(f"\033[31m{result}\033[0m")
                 else:
                     self.list_ssl_profiles[item['name']] = result
                     print(f'\tПрофиль SSL "{item["name"]}" добавлен.')
@@ -1487,6 +1548,82 @@ class UTM(UtmXmlRpc):
             else:
                 print(f'\tПрофиль MFA "{item["name"]}" добавлен.')
 
+    def get_auth_profile_methods(self, method):
+        auth_type = {
+            'ldap': 'ldap_server_id',
+            'radius': 'radius_server_id',
+            'tacacs_plus': 'tacacs_plus_server_id',
+            'ntlm': 'ntlm_server_id',
+            'saml_idp': 'saml_idp_server_id' if self.version.startswith('6') else 'saml_idp_server'
+        }
+        name = auth_type[method['type']]
+        try:
+            if name == 'saml_idp_server':
+                method['saml_idp_server_id'] = self.auth_servers[method[name]]
+                method.pop('saml_idp_server')
+            else:
+                method[name] = self.auth_servers[method[name]]
+        except KeyError:
+            print(f'\t\033[33mСервер авторизации "{method[name]}" не найден.\n\tЗагрузите серверы авторизации и повторите попытку.\033[0m')
+            method.clear()
+
+    def export_auth_profiles(self):
+        """Выгрузить список профилей авторизации"""
+        print('Выгружается список "Профили авторизации" раздела "Пользователи и устройства":')
+        if not os.path.isdir('data/users_and_devices'):
+            os.mkdir('data/users_and_devices')
+
+        _, data = self.get_auth_profiles()
+
+        for item in data:
+            item['2fa_profile_id'] = self.profiles_2fa.get(item['2fa_profile_id'], False)
+            for auth_method in item['allowed_auth_methods']:
+                if len(auth_method) == 2:
+                    self.get_auth_profile_methods(auth_method)
+
+        with open("data/users_and_devices/config_auth_profiles.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Профили авторизации" выгружен в файл "data/users_and_devices/config_auth_profiles.json".')
+
+    def import_auth_profiles(self):
+        """Импортировать список профилей авторизации"""
+        print('Импорт списка "Профили авторизации" раздела "Пользователи и устройства":')
+        try:
+            with open("data/users_and_devices/config_auth_profiles.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок локальных пользователей не импортирован!\n\tНе найден файл "data/users_and_devices/config_auth_profiles.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет профилей авторизации для импорта.")
+            return
+        for item in data:
+            if item['2fa_profile_id']:
+                try:
+                    item['2fa_profile_id'] = self.profiles_2fa[item['2fa_profile_id']]
+                except KeyError:
+                    item['2fa_profile_id'] = False
+                    print(f'\t\033[33mПрофиль MFA "{item["2fa_profile_id"]}" не найден.\n\tЗагрузите профили MFA и повторите попытку.\033[0m')
+
+            for auth_method in item['allowed_auth_methods']:
+                if len(auth_method) == 2:
+                    self.get_auth_profile_methods(auth_method)
+
+            err, result = self.add_auth_profile(item)
+            if err == 1:
+                print(result, end= ' - ')
+                item['id'] = self.auth_profiles[item['name']]
+                err1, result1 = self.update_auth_profile(item)
+                if err1 != 0:
+                    print("\n", f"\033[31m{result1}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            elif err == 2:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                print(f'\tПрофиль авторизации "{item["name"]}" добавлен.')
+
 ################### ZONES #####################################
     def export_zones_list(self):
         """Выгрузить список зон"""
@@ -1887,8 +2024,9 @@ def menu3(utm, mode, section):
         elif section == 4:
             print("1   - Экспортировать список локальных групп.")
             print("2   - Экспортировать список локальных пользователей.")
-            print("3   - Экспортировать список профилей MFA.")
-            print("4   - Экспортировать список серверов авторизации.")
+            print('3   - Экспортировать список "Профили MFA".')
+            print('4   - Экспортировать список "Серверы авторизации".')
+            print('5   - Экспортировать список "Профили авторизации".')
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -1934,12 +2072,13 @@ def menu3(utm, mode, section):
         elif section == 4:
             print("1   - Импортировать список локальных групп.")
             print("2   - Импортировать список локальных пользователей.")
-            print("3   - Импортировать список профилей MFA.")
+            print('3   - Импортировать список "Профили MFA".')
             print("4   - Импортировать список серверов авторизации LDAP.")
             print("5   - Импортировать список серверов авторизации NTLM.")
             print("6   - Импортировать список серверов авторизации RADIUS.")
             print("7   - Импортировать список серверов авторизации TACACS.")
             print("8   - Импортировать список серверов авторизации SAML.")
+            print('9   - Импортировать список "Профили авторизации".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -2083,11 +2222,14 @@ def main():
                     utm.export_2fa_profiles()
                 elif command == 404:
                     utm.export_auth_servers()
+                elif command == 405:
+                    utm.export_auth_profiles()
                 elif command == 499:
                     utm.export_groups_lists()
                     utm.export_users_lists()
                     utm.export_2fa_profiles()
                     utm.export_auth_servers()
+                    utm.export_auth_profiles()
 
                 elif command == 9999:
                     utm.export_morphology_lists()
@@ -2118,6 +2260,7 @@ def main():
                     utm.export_users_lists()
                     utm.export_2fa_profiles()
                     utm.export_auth_servers()
+                    utm.export_auth_profiles()
             except UtmError as err:
                 print(err)
             except Exception as err:
@@ -2221,6 +2364,8 @@ def main():
                         utm.import_tacacs_server()
                     elif command == 408:
                         utm.import_saml_server()
+                    elif command == 409:
+                        utm.import_auth_profiles()
                     elif command == 499:
                         utm.import_groups_list()
                         utm.import_users_list()
@@ -2230,6 +2375,7 @@ def main():
                         utm.import_radius_server()
                         utm.import_tacacs_server()
                         utm.import_saml_server()
+                        utm.import_auth_profiles()
                     elif command == 9999:
                         utm.import_morphology()
                         utm.import_services()
@@ -2262,6 +2408,7 @@ def main():
                         utm.import_radius_server()
                         utm.import_tacacs_server()
                         utm.import_saml_server()
+                        utm.import_auth_profiles()
                 except UtmError as err:
                     print(err)
                 except Exception as err:
