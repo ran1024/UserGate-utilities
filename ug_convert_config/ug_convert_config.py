@@ -1365,7 +1365,7 @@ class UTM(UtmXmlRpc):
 
     def export_auth_servers(self):
         """Выгрузить списки серверов авторизации"""
-        print('Выгружаются списки серверов авторизации раздела "Пользователи и устройства":')
+        print('Выгружается список "Cерверы авторизации" раздела "Пользователи и устройства":')
         if not os.path.isdir('data/users_and_devices'):
             os.mkdir('data/users_and_devices')
 
@@ -2315,6 +2315,7 @@ def main():
                     utm.export_2fa_profiles()
                     utm.export_auth_servers()
                     utm.export_auth_profiles()
+                    utm.export_captive_profiles()
 
                 elif command == 9999:
                     utm.export_morphology_lists()
@@ -2346,10 +2347,11 @@ def main():
                     utm.export_2fa_profiles()
                     utm.export_auth_servers()
                     utm.export_auth_profiles()
+                    utm.export_captive_profiles()
             except UtmError as err:
                 print(err)
-#            except Exception as err:
-#                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+            except Exception as err:
+                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
             finally:
                 utm.logout()
                 print("\033[32mЭкспорт конфигурации завершён.\033[0m\n")
@@ -2512,8 +2514,8 @@ def main():
     except KeyboardInterrupt:
         print("\nПрограмма принудительно завершена пользователем.\n")
         utm.logout()
-#    except:
-#        print("\nПрограмма завершена.\n")
+    except:
+        print("\nПрограмма завершена.\n")
 
 if __name__ == '__main__':
     main()
