@@ -1249,7 +1249,7 @@ class UTM(UtmXmlRpc):
         if not os.path.isdir('data/settings'):
             os.mkdir('data/settings')
 
-        print(self.list_templates)
+#        print(self.list_templates)
         _, data = self.get_proxyportal_config()
         if data:
             data['user_auth_profile_id'] = self.auth_profiles.get(data['user_auth_profile_id'], None)
@@ -1270,7 +1270,10 @@ class UTM(UtmXmlRpc):
         for item in data:
             _, users = self.get_group_users(item['guid'])
             item.pop('cc', None)
-            item['users'] = [x[1] for x in users]
+            if self.version.startswith('6'):
+                item['users'] = [x[1] for x in users]
+            else:
+                item['users'] = [x['name'] for x in users]
         with open(f"data/users_and_devices/config_groups.json", "w") as fd:
             json.dump(data, fd, indent=4, ensure_ascii=False)
         print(f"\tСписок локальных групп выгружен в файл data/users_and_devices/config_groups.json")
@@ -2345,8 +2348,8 @@ def main():
                     utm.export_auth_profiles()
             except UtmError as err:
                 print(err)
-            except Exception as err:
-                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+#            except Exception as err:
+#                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
             finally:
                 utm.logout()
                 print("\033[32mЭкспорт конфигурации завершён.\033[0m\n")
@@ -2509,8 +2512,8 @@ def main():
     except KeyboardInterrupt:
         print("\nПрограмма принудительно завершена пользователем.\n")
         utm.logout()
-    except:
-        print("\nПрограмма завершена.\n")
+#    except:
+#        print("\nПрограмма завершена.\n")
 
 if __name__ == '__main__':
     main()
