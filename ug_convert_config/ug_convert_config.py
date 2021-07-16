@@ -882,7 +882,7 @@ class UTM(UtmXmlRpc):
                         else:
                             print(f'\t\tДобавлено приложение: "{app["value"]}".')
                     except:
-                        print(f'\t\t033[33mПриложение "{app["value"]}" не будет добавлена, так как не существует на целевой системе.\033[0m')
+                        print(f'\t\t\033[33mПриложение "{app["value"]}" не будет добавлено, так как не существует на целевой системе.\033[0m')
 
     def export_nlist_groups(self, list_type):
         """Выгружает списки: "Почтовые адреса", "Номера телефонов" и преобразует формат списков к версии 6"""
@@ -945,7 +945,7 @@ class UTM(UtmXmlRpc):
                         else:
                             print(f'\t\tДобавлен {list_name[list_type][2]}: "{email["value"]}".')
                     except:
-                        print(f'\t\t033[31mПочтовый адрес "{email["value"]}" не будет добавлен, так как произошла ошибка при добавлении.\033[0m')
+                        print(f'\t\t\033[31m{list_name[list_type][2]} "{email["value"]}" не будет добавлен, так как произошла ошибка при добавлении.\033[0m')
 
     def export_ips_profiles(self):
         """Выгружает списки: "Профили СОВ" и преобразует формат списков к версии 6"""
@@ -982,7 +982,7 @@ class UTM(UtmXmlRpc):
         print(f'Импорт списка "Профили СОВ":')
         try:
             with open(f"data/library/config_ips_profiles.json", "r") as fh:
-                email_list = json.load(fh)
+                data = json.load(fh)
         except FileNotFoundError as err:
             print(f'\t\033[31mСписок "Профили СОВ" не импортирован!\n\tНе найден файл "data/library/config_ips_profiles.json" с сохранённой конфигурацией!\033[0;0m')
             return
@@ -992,7 +992,7 @@ class UTM(UtmXmlRpc):
         if not data:
             print(f"\tНет профилей СОВ для импорта.")
             return
-        for item in email_list:
+        for item in data:
             content = item.pop('content')
             err, result = self.add_nlist(item)
             if err == 1:
@@ -1235,13 +1235,14 @@ class UTM(UtmXmlRpc):
             print(f'\t\033[31mИсключения кеширования http не импортированы!\n\tНе найден файл "data/settings/config_proxy_exceptions.json" с сохранённой конфигурацией!\033[0;0m')
             return
 
-        _, data = self.get_nlist_list('httpcwl')
-        for item in settings:
-            err, result = self.add_nlist_item(data['id'], item)
-            if err != 0:
-                print(f'\t{result}')
-            else:
-                print(f'\tВ исключения кеширования добавлен URL: "{item["value"]}".')
+# Ждём исправления бага!
+#        _, data = self.get_nlist_list('httpcwl')
+#        for item in settings:
+#            err, result = self.add_nlist_item(data['id'], item)
+#            if err != 0:
+#                print(f'\t{result}')
+#            else:
+#                print(f'\tВ исключения кеширования добавлен URL: "{item["value"]}".')
 
     def export_proxy_portal(self):
         """Выгрузить настройки веб-портала"""
@@ -1859,9 +1860,6 @@ class UTM(UtmXmlRpc):
     def import_dhcp_subnets(self):
         """Добавить DHCP subnets на UTM"""
         print("Импорт DHCP subnets:")
-        _, data = self.get_interfaces_list()
-        dst_ports = [x['name'] for x in data if not x['name'].startswith('tunnel')]
-
         try:
             with open("data/network/config_dhcp_subnets.json", "r") as fd:
                 subnets = json.load(fd)
@@ -1869,30 +1867,34 @@ class UTM(UtmXmlRpc):
             print(f'\t\033[31mСписок "DHCP" не импортирован!\n\tНе найден файл "data/network/config_dhcp_subnets.json.json" с сохранённой конфигурацией!\033[0;0m')
             return
 
-        src_ports = {x['iface_id']: '' for x in subnets}
-        for port in src_ports.keys():
-            if port in dst_ports:
-                src_ports[port] = port
-            else:
-                print(f"\nВы добавляете DHCP subnet на несуществующий порт: {port}")
-                print(f"Существуют следующие порты: {sorted(dst_ports)}")
-                while True:
-                    command = input("\nВведите имя порта: ")
-                    if command not in dst_ports:
-                        print("Вы ввели несуществующий порт.")
-                    else:
-                        break
-                src_ports[port] = command
+        _, data = self.get_interfaces_list()
+        dst_ports = [x['name'] for x in data if not x['name'].startswith('tunnel')]
+
+        total, data = self.get_dhcp_list()
+        old_dhcp_subtets = [x['name'] for x in data]
 
         for item in subnets:
+            if item['name'] in old_dhcp_subtets:
+                print(f'\tDHCP subnet "{item["name"]}" уже существует!')
+                continue
+            if item['iface_id'] not in dst_ports:
+                print(f'\n\033[36mВы добавляете DHCP subnet\033[0m "{item["name"]}" \033[36mна несуществующий порт: \033[33m{item["iface_id"]}\033[0m')
+                print(f"\033[36mСуществуют следующие порты:\033[0m {sorted(dst_ports)}")
+                while True:
+                    port = input("\n\033[36mВведите имя порта:\033[0m ")
+                    if port not in dst_ports:
+                        print("\033[31mВы ввели несуществующий порт.\033[0m")
+                    else:
+                        break
+                item['iface_id'] = port
+
             if item['name'] == "":
                 item['name'] = "No Name subnet" 
             if "cc" in item.keys():
                 item.pop("cc")
                 item.pop("node_name")
-            item['iface_id'] = src_ports[item['iface_id']]
             err, result = self.add_dhcp_subnet(item)
-            print(result) if err else print(f"\tSubnet '{item['name']}' добавлен.")
+            print(f"\033[31m{result}\033[0m") if err else print(f'\tSubnet "{item["name"]}" добавлен.')
 
 ################### DNS #################################
     def export_dns_config(self):
@@ -2147,7 +2149,7 @@ def menu3(utm, mode, section):
         elif section == 3:
             print("1   - Импортировать настройки NTP.")
             print('2   - Импортировать настройки Модулей и кэширования HTTP раздела "Настройки".')
-            print('3   - Импортировать настройки Веб-портала раздела "Настройки".')
+#            print('3   - Импортировать настройки Веб-портала раздела "Настройки".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")

@@ -182,7 +182,7 @@ class UtmXmlRpc:
         try:
             result = self._server.v1.netmanager.dhcp.subnets.list(self._auth_token, self.node_name, {})
         except rpc.Fault as err:
-            print(f"Ошибка get_dhcp_list: [{err.faultCode}] — {err.faultString}")
+            print(f"Ошибка utm.get_dhcp_list: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
         return len(result), result
 
@@ -194,9 +194,9 @@ class UtmXmlRpc:
             return 11, err
         except rpc.Fault as err:
             if err.faultCode == 1017:
-                return 1, f"\tDHCP subnet: {subnet['name']} уже существует."
+                return 1, f'\tDHCP subnet "{subnet["name"]}" уже существует.'
             else:
-                return 2, f"Ошибка add_dhcp_subnet: [{err.faultCode}] — {err.faultString}"
+                return 2, f"Ошибка utm.add_dhcp_subnet: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result
 
@@ -217,7 +217,7 @@ class UtmXmlRpc:
         try:
             result = self._server.v2.settings.custom.dns.add(self._auth_token, dns_server)
         except rpc.Fault as err:
-            if err.faultCode == 409:
+            if err.faultCode == 18004:
                 return 1, f"\tDNS server {dns_server['dns']} уже существует."
             else:
                 return 2, f"\tОшибка utm.add_dns_server: [{err.faultCode}] — {err.faultString}"
@@ -269,7 +269,7 @@ class UtmXmlRpc:
                         item['content'] = [x for x in content['items']]
                     array.append(item)
         except rpc.Fault as err:
-            print(f"Ошибка get_namedlist_list: [{err.faultCode}] — {err.faultString}")
+            print(f"Ошибка utm.get_namedlist_list: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
         return len(array), array
 
@@ -283,7 +283,7 @@ class UtmXmlRpc:
             if err.faultCode == 409:
                 return 1, f'\tСписок: "{named_list["name"]}" уже существует. Проверка параметров...'
             else:
-                return 2, f"\tОшибка add_namedlist: [{err.faultCode}] — {err.faultString}"
+                return 2, f"\tОшибка utm.add_namedlist: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result
 
@@ -297,7 +297,7 @@ class UtmXmlRpc:
             if err.faultCode == 409:
                 return 1, f"\tСписок: {named_list['name']} - нет отличающихся параметров для изменения."
             else:
-                return 2, f"\tОшибка update_namedlist: [{err.faultCode}] — {err.faultString}"
+                return 2, f"\tОшибка utm.update_namedlist: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result
 
