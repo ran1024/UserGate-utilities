@@ -769,4 +769,37 @@ class UtmXmlRpc:
         else:
             return 0, result     # Возвращает True
 
+    def get_captive_profiles(self):
+        """Получить список Captive-профилей"""
+        try:
+            result = self._server.v1.captiveportal.profiles.list(self._auth_token, 0, 1000, '')
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_captive_profiles: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result['items']), result['items']
+
+    def add_captive_profile(self, profile):
+        """Добавить новый Captive-профиль"""
+        if profile['name'] in self.captive_profiles.keys():
+            return 1, f"\tПрофиль авторизации '{profile['name']}' уже существует."
+        try:
+            result = self._server.v1.captiveportal.profile.add(self._auth_token, profile)
+        except rpc.Fault as err:
+            if err.faultCode == 110:
+                return 2, f'\tПрофиль авторизации "{profile["name"]}" не добавлен — {err.faultString}.'
+            else:
+                return 2, f"\tОшибка utm.add_captive_profile: [{err.faultCode}] — {err.faultString}"
+        else:
+            self.captive_profiles[profile['name']] = result
+            return 0, result     # Возвращает ID добавленного профиля
+
+    def update_captive_profile(self, profile):
+        """Обновить Captive-профиль"""
+        try:
+            result = self._server.v1.captiveportal.profile.update(self._auth_token, profile['id'], profile)
+        except rpc.Fault as err:
+            return 1, f"\tОшибка utm.update_captive_profile: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
 class UtmError(Exception): pass

@@ -36,6 +36,7 @@ class UTM(UtmXmlRpc):
         self.profiles_2fa = {}          # Список профилей MFA {name: guid}
         self.auth_servers = {}          # Список серверов авторизации {id: name} для экспорта и {name: id} для импорта
         self.auth_profiles = {}         # Список профилей авторизации {id: name} для экспорта и {name: id} для импорта
+        self.captive_profiles = {}      # Список captive-профилей {name: id}
         self._connect()
 
     def init_struct_for_export(self):
@@ -129,6 +130,9 @@ class UTM(UtmXmlRpc):
 
             result = self._server.v1.auth.user.auth.profiles.list(self._auth_token)
             self.auth_profiles = {x['name']: x['id'] for x in result}
+
+            result = self._server.v1.captiveportal.profiles.list(self._auth_token, 0, 100, '')
+            self.captive_profiles = {x['name']: x['id'] for x in result['items']}
 
         except rpc.Fault as err:
             print(f"\033[31mОшибка ug_convert_config/init_struct_for_import(): [{err.faultCode}] {err.faultString}\033[0m")
@@ -1592,7 +1596,7 @@ class UTM(UtmXmlRpc):
             with open("data/users_and_devices/config_auth_profiles.json", "r") as fh:
                 data = json.load(fh)
         except FileNotFoundError as err:
-            print(f'\t\033[31mСписок локальных пользователей не импортирован!\n\tНе найден файл "data/users_and_devices/config_auth_profiles.json" с сохранённой конфигурацией!\033[0;0m')
+            print(f'\t\033[31mСписок "Профили авторизации" не импортирован!\n\tНе найден файл "data/users_and_devices/config_auth_profiles.json" с сохранённой конфигурацией!\033[0;0m')
             return
 
         if not data:
@@ -1603,8 +1607,8 @@ class UTM(UtmXmlRpc):
                 try:
                     item['2fa_profile_id'] = self.profiles_2fa[item['2fa_profile_id']]
                 except KeyError:
-                    item['2fa_profile_id'] = False
                     print(f'\t\033[33mПрофиль MFA "{item["2fa_profile_id"]}" не найден.\n\tЗагрузите профили MFA и повторите попытку.\033[0m')
+                    item['2fa_profile_id'] = False
 
             for auth_method in item['allowed_auth_methods']:
                 if len(auth_method) == 2:
@@ -1623,6 +1627,80 @@ class UTM(UtmXmlRpc):
                 print(f"\033[31m{result}\033[0m")
             else:
                 print(f'\tПрофиль авторизации "{item["name"]}" добавлен.')
+
+    def export_captive_profiles(self):
+        """Выгрузить список Captive-профилей"""
+        print('Выгружается список "Captive-профили" раздела "Пользователи и устройства":')
+        if not os.path.isdir('data/users_and_devices'):
+            os.mkdir('data/users_and_devices')
+
+        _, data = self.get_captive_profiles()
+
+        for item in data:
+            item['captive_template_id'] = self.list_templates.get(item['captive_template_id'], -1)
+            item['notification_profile_id'] = self.list_notifications.get(item['notification_profile_id'], -1)
+            item['user_auth_profile_id'] = self.auth_profiles[item['user_auth_profile_id']]
+            item['ta_groups'] = [self.list_groups[guid] for guid in item['ta_groups']]
+            item.pop('id', None)
+            item.pop('guid', None)
+            item.pop('ta_expiration_date', None),
+            item.pop('cc', None)
+
+        with open("data/users_and_devices/config_captive_profiles.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Captive-профили" выгружен в файл "data/users_and_devices/config_captive_profiles.json".')
+
+    def import_captive_profiles(self):
+        """Импортировать список Captive-профилей"""
+        print('Импорт списка "Captive-профили" раздела "Пользователи и устройства":')
+        try:
+            with open("data/users_and_devices/config_captive_profiles.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Captive-профили" не импортирован!\n\tНе найден файл "data/users_and_devices/config_captive_profiles.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет Captive-профилей для импорта.")
+            return
+        result = self._server.v3.accounts.groups.list(self._auth_token, 0, 1000, {})
+        groups = {x['name']: x['id'] for x in result['items'] if result['total']}
+        for item in data:
+            item['captive_template_id'] = self.list_templates.get(item['captive_template_id'], -1)
+
+            try:
+                item['user_auth_profile_id'] = self.auth_profiles[item['user_auth_profile_id']]
+            except KeyError:
+                print(f'\t\033[33mПрофиль авторизации "{item["user_auth_profile_id"]}" не найден.\n\tЗагрузите профили авторизации и повторите попытку.\033[0m')
+                item['user_auth_profile_id'] = 1
+
+            if item['notification_profile_id'] != -1:
+                try:
+                    item['notification_profile_id'] = self.list_notifications[item['notification_profile_id']]
+                except KeyError:
+                    print(f'\t\033[33mПрофиль оповещения "{item["notification_profile_id"]}" не найден.\n\tЗагрузите профили оповещения и повторите попытку.\033[0m')
+                    item['notification_profile_id'] = -1
+
+            if item['ta_groups']:
+                try:
+                    item['ta_groups'] = [groups[name] for name in item['ta_groups']]
+                except KeyError:
+                    print(f'\t\033[33mГруппы "{item["ta_groups"]}" не найдены.\n\tЗагрузите локальные группы и повторите попытку.\033[0m')
+                    item['ta_groups'] = []
+
+            err, result = self.add_captive_profile(item)
+            if err == 1:
+                print(result, end= ' - ')
+                item['id'] = self.captive_profiles[item['name']]
+                err1, result1 = self.update_captive_profile(item)
+                if err1 != 0:
+                    print("\n", f"\033[31m{result1}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            elif err == 2:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                print(f'\tCaptive-профиль "{item["name"]}" добавлен.')
 
 ################### ZONES #####################################
     def export_zones_list(self):
@@ -2027,6 +2105,7 @@ def menu3(utm, mode, section):
             print('3   - Экспортировать список "Профили MFA".')
             print('4   - Экспортировать список "Серверы авторизации".')
             print('5   - Экспортировать список "Профили авторизации".')
+            print('6   - Экспортировать список "Captive-профили".')
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -2079,6 +2158,7 @@ def menu3(utm, mode, section):
             print("7   - Импортировать список серверов авторизации TACACS.")
             print("8   - Импортировать список серверов авторизации SAML.")
             print('9   - Импортировать список "Профили авторизации".')
+            print('10  - Импортировать список "Captive-профили".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -2224,6 +2304,8 @@ def main():
                     utm.export_auth_servers()
                 elif command == 405:
                     utm.export_auth_profiles()
+                elif command == 406:
+                    utm.export_captive_profiles()
                 elif command == 499:
                     utm.export_groups_lists()
                     utm.export_users_lists()
@@ -2366,6 +2448,8 @@ def main():
                         utm.import_saml_server()
                     elif command == 409:
                         utm.import_auth_profiles()
+                    elif command == 410:
+                        utm.import_captive_profiles()
                     elif command == 499:
                         utm.import_groups_list()
                         utm.import_users_list()
@@ -2376,6 +2460,8 @@ def main():
                         utm.import_tacacs_server()
                         utm.import_saml_server()
                         utm.import_auth_profiles()
+                        utm.import_captive_profiles()
+                        
                     elif command == 9999:
                         utm.import_morphology()
                         utm.import_services()
@@ -2409,6 +2495,7 @@ def main():
                         utm.import_tacacs_server()
                         utm.import_saml_server()
                         utm.import_auth_profiles()
+                        utm.import_captive_profiles()
                 except UtmError as err:
                     print(err)
                 except Exception as err:
