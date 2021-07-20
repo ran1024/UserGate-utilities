@@ -12,16 +12,16 @@ from utm import UtmXmlRpc, UtmError
 class UTM(UtmXmlRpc):
     def __init__(self, server_ip, login, password):
         super().__init__(server_ip, login, password)
-        self._categories = {}           # Список Категорий URL
-        self.zones = {}                 # Список зон {name: id}
+        self._categories = {}           # Список Категорий URL {id: name} для экспорта и {name: id} для импорта
+        self.zones = {}                 # Список зон {id: name} для экспорта и {name: id} для импорта
         self.services = {}              # Список сервисов раздела библиотеки {name: id}
         self.shaper = {}                # Список полос пропускания раздела библиотеки {name: id}
         self.list_morph = {}            # Списки морфлолгии раздела библиотеки {name: id}
-        self.list_IP = {}               # Списки IP-адресов раздела библиотеки  {name: id}
+        self.list_IP = {}               # Списки IP-адресов раздела библиотеки {id: name} для экспорта и {name: id} для импорта
         self.list_useragent = {}        # Списки UserAgent раздела библиотеки  {name: id}
         self.list_mime = {}             # Списки mime групп типов контента раздела библиотеки  {name: id}
-        self.list_url = {}              # Списки URL раздела библиотеки  {name: id}
-        self.list_calendar = {}         # Списки календарей раздела библиотеки  {name: id}
+        self.list_url = {}              # Списки URL раздела библиотеки {id: name} для экспорта и {name: id} для импорта
+        self.list_calendar = {}         # Списки календарей раздела библиотеки {id: name} для экспорта и {name: id} для импорта
         self.list_scada = {}            # Списки профилей АСУ ТП раздела библиотеки  {name: id}
         self.list_templates = {}        # Списки шаблонов страниц раздела библиотеки  {name: id}
         self.list_urlcategorygroup = {} # Список групп категорий URL раздела библиотеки  {name: id}
@@ -31,12 +31,13 @@ class UTM(UtmXmlRpc):
         self.list_notifications = {}    # Список профилей оповещения {id: name} для экспорта и {name: id} для импорта
         self.list_netflow = {}          # Список профилей netflow {name: id}
         self.list_ssl_profiles = {}     # Список профилей ssl {name: id}
-        self.list_groups = {}           # Список локальных групп {name: guid}
+        self.list_groups = {}           # Список локальных групп {guid: name} для экспорта и {name: guid} для импорта
         self.list_users = {}            # Список локальных пользователей {name: guid}
         self.profiles_2fa = {}          # Список профилей MFA {name: guid}
         self.auth_servers = {}          # Список серверов авторизации {id: name} для экспорта и {name: id} для импорта
         self.auth_profiles = {}         # Список профилей авторизации {id: name} для экспорта и {name: id} для импорта
-        self.captive_profiles = {}      # Список captive-профилей {name: id}
+        self.captive_profiles = {}      # Список captive-профилей {id: name} для экспорта и {name: id} для импорта
+        self.captive_portal_rules = {}  # Список captive-профилей {name: id}
         self._connect()
 
     def init_struct_for_export(self):
@@ -54,6 +55,21 @@ class UTM(UtmXmlRpc):
                 result = self._server.v2.core.get.l7apps(self._auth_token, 0, 10000, '')
             self.l7_apps = {x['id'] if 'id' in x.keys() else x['app_id']: x['name'] for x in result['items'] if result['count']}
 
+            result = self._server.v2.nlists.list(self._auth_token, 'network', 0, 1000, {})
+            self.list_IP = {x['id']: x['name'] for x in result['items'] if result['count']}
+
+            result = self._server.v2.nlists.list(self._auth_token, 'url', 0, 1000, {})
+            self.list_url = {x['id']: x['name'] for x in result['items'] if result['count']}
+
+            result = self._server.v2.nlists.list(self._auth_token, 'timerestrictiongroup', 0, 1000, {})
+            self.list_calendar = {x['id']: x['name'] for x in result['items'] if result['count']}
+
+            result = self._server.v2.nlists.list(self._auth_token, 'urlcategorygroup', 0, 1000, {})
+            self.list_urlcategorygroup = {x['id']: x['name'] for x in result['items'] if result['count']}
+
+            result = self._server.v2.nlists.list(self._auth_token, 'applicationgroup', 0, 1000, {})
+            self.list_applicationgroup = {x['id']: x['name'] for x in result['items'] if result['count']}
+
             result = self._server.v3.accounts.groups.list(self._auth_token, 0, 1000, {})
             self.list_groups = {x['guid']: x['name'] for x in result['items'] if result['total']}
 
@@ -62,8 +78,15 @@ class UTM(UtmXmlRpc):
             
             result = self._server.v1.notification.profiles.list(self._auth_token)
             self.list_notifications = {x['id']: x['name'] for x in result}
+
+            result = self._server.v1.captiveportal.profiles.list(self._auth_token, 0, 100, '')
+            self.captive_profiles = {x['id']: x['name'] for x in result['items']}
+
         except rpc.Fault as err:
             print(f"\033[31mОшибка ug_convert_config/init_struct_for_export(): [{err.faultCode}] {err.faultString}\033[0m")
+
+        total, data = self.get_zones_list()
+        self.zones = {x['id']: x['name'] for x in data if total}
 
         total, data = self.get_templates_list()
         self.list_templates = {x['type'] if x['default'] else x['id']: x['name'] for x in data if total}
@@ -133,6 +156,9 @@ class UTM(UtmXmlRpc):
 
             result = self._server.v1.captiveportal.profiles.list(self._auth_token, 0, 100, '')
             self.captive_profiles = {x['name']: x['id'] for x in result['items']}
+
+            result = self._server.v1.captiveportal.rules.list(self._auth_token, 0, 100, {})
+            self.captive_portal_rules = {x['name']: x['id'] for x in result['items']}
 
         except rpc.Fault as err:
             print(f"\033[31mОшибка ug_convert_config/init_struct_for_import(): [{err.faultCode}] {err.faultString}\033[0m")
@@ -1644,7 +1670,12 @@ class UTM(UtmXmlRpc):
             item['captive_template_id'] = self.list_templates.get(item['captive_template_id'], -1)
             item['notification_profile_id'] = self.list_notifications.get(item['notification_profile_id'], -1)
             item['user_auth_profile_id'] = self.auth_profiles[item['user_auth_profile_id']]
-            item['ta_groups'] = [self.list_groups[guid] for guid in item['ta_groups']]
+            if self.version.startswith('5'):
+                item['ta_groups'] = [self.list_groups[guid] for guid in item['ta_groups']]
+            else:
+                result = self._server.v3.accounts.groups.list(self._auth_token, 0, 1000, {})
+                groups = {x['id']: x['name'] for x in result['items'] if result['total']}
+                item['ta_groups'] = [groups[id] for id in item['ta_groups']]
             item.pop('id', None)
             item.pop('guid', None)
             item.pop('ta_expiration_date', None),
@@ -1695,7 +1726,6 @@ class UTM(UtmXmlRpc):
             err, result = self.add_captive_profile(item)
             if err == 1:
                 print(result, end= ' - ')
-                item['id'] = self.captive_profiles[item['name']]
                 err1, result1 = self.update_captive_profile(item)
                 if err1 != 0:
                     print("\n", f"\033[31m{result1}\033[0m")
@@ -1705,6 +1735,133 @@ class UTM(UtmXmlRpc):
                 print(f"\033[31m{result}\033[0m")
             else:
                 print(f'\tCaptive-профиль "{item["name"]}" добавлен.')
+
+    def export_captive_portal_rules(self):
+        """Выгрузить список правил Captive-портала"""
+        print('Выгружается список "Captive-портал" раздела "Пользователи и устройства":')
+        if not os.path.isdir('data/users_and_devices'):
+            os.mkdir('data/users_and_devices')
+
+        _, data = self.get_captive_portal_rules()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('guid', None)
+            item.pop('rownumber', None)
+            item.pop('position_layer', None),
+            item['profile_id'] = self.captive_profiles.get(item['profile_id'], 0)
+            item['src_zones'] = [self.zones[x] for x in item['src_zones']]
+            item['dst_zones'] = [self.zones[x] for x in item['dst_zones']]
+            for x in item['src_ips']:
+                if x[0] == 'list_id':
+                    x[1] = self.list_IP[x[1]]
+                elif x[0] == 'urllist_id':
+                    x[1] = self.list_url[x[1]]
+            for x in item['dst_ips']:
+                if x[0] == 'list_id':
+                    x[1] = self.list_IP[x[1]]
+                elif x[0] == 'urllist_id':
+                    x[1] = self.list_url[x[1]]
+            item['urls'] = [self.list_url[x] for x in item['urls']]
+            for x in item['url_categories']:
+                if x[0] == 'list_id':
+                    x[1] = self.list_urlcategorygroup[x[1]]
+                elif x[0] == 'category_id':
+                    x[1] = self._categories[x[1]]
+            item['time_restrictions'] = [self.list_calendar[x] for x in item['time_restrictions']]
+
+        with open("data/users_and_devices/config_captive_portal_rules.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Captive-портал" выгружен в файл "data/users_and_devices/config_captive_portal_rules.json".')
+
+    def import_captive_portal_rules(self):
+        """Импортировать список правил Captive-портала"""
+        print('Импорт списка правил "Captive-портала" раздела "Пользователи и устройства":')
+        try:
+            with open("data/users_and_devices/config_captive_portal_rules.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Captive-портал" не импортирован!\n\tНе найден файл "data/users_and_devices/config_captive_portal_rules.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет правил Captive-портала для импорта.")
+            return
+        for item in data:
+            if item['profile_id'] != 0:
+                try:
+                    item['profile_id'] = self.captive_profiles[item['profile_id']]
+                except KeyError:
+                    print(f'\t\033[33mCaptive-профиль "{item["profile_id"]}" не найден.\n\tЗагрузите Captive-профили и повторите попытку.\033[0m')
+                    item['profile_id'] = 0
+            if item['src_zones']:
+                try:
+                    item['src_zones'] = [self.zones[x] for x in item['src_zones']]
+                except KeyError:
+                    print(f'\t\033[33mИсходная зона не найдена.\n\tЗагрузите список зон и повторите попытку.\033[0m')
+                    item['src_zones'] = []
+            if item['dst_zones']:
+                try:
+                    item['dst_zones'] = [self.zones[x] for x in item['dst_zones']]
+                except KeyError:
+                    print(f'\t\033[33mЗона назначения не найдена.\n\tЗагрузите список зон и повторите попытку.\033[0m')
+                    item['dst_zones'] = []
+            if item['src_ips']:
+                try:
+                    for x in item['src_ips']:
+                        if x[0] == 'list_id':
+                            x[1] = self.list_IP[x[1]]
+                        elif x[0] == 'urllist_id':
+                            x[1] = self.list_url[x[1]]
+                except KeyError as err:
+                    print(f'\t\033[33mНе найден адрес источника: {err} .\n\tЗагрузите списки IP-адресов и URL и повторите попытку.\033[0m')
+                    item['src_ips'] = []
+            if item['dst_ips']:
+                try:
+                    for x in item['dst_ips']:
+                        if x[0] == 'list_id':
+                            x[1] = self.list_IP[x[1]]
+                        elif x[0] == 'urllist_id':
+                            x[1] = self.list_url[x[1]]
+                except KeyError as err:
+                    print(f'\t\033[33mНе найден адрес назначения: {err} .\n\tЗагрузите списки IP-адресов и URL и повторите попытку.\033[0m')
+                    item['dst_ips'] = []
+            if item['urls']:
+                try:
+                    item['urls'] = [self.list_url[x] for x in item['urls']]
+                except KeyError:
+                    print(f'\t\033[33mНе найден URL.\n\tЗагрузите списки URL и повторите попытку.\033[0m')
+                    item['urls'] = []
+            if item['url_categories']:
+                try:
+                    for x in item['url_categories']:
+                        if x[0] == 'list_id':
+                            x[1] = self.list_urlcategorygroup[x[1]]
+                        elif x[0] == 'category_id':
+                            x[1] = self._categories[x[1]]
+                except KeyError as err:
+                    print(f'\t\033[33mНе найдена группа URL-категорий: {err} в правиле "{item["name"]}".\n\tЗагрузите ктегории URL и повторите попытку.\033[0m')
+                    item['url_categories'] = []
+            if item['time_restrictions']:
+                try:
+                    item['time_restrictions'] = [self.list_calendar[x] for x in item['time_restrictions']]
+                except KeyError as err:
+                    print(f'\t\033[33mНе найден календарь: {err}.\n\tЗагрузите списки URL и повторите попытку.\033[0m')
+                    item['time_restrictions'] = []
+
+
+            err, result = self.add_captive_portal_rules(item)
+            if err == 1:
+                print(result, end= ' - ')
+                err1, result1 = self.update_captive_portal_rule(item)
+                if err1 != 0:
+                    print("\n", f"\033[31m{result1}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            elif err == 2:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                print(f'\tПравило Captive-портала "{item["name"]}" добавлено.')
 
 ################### ZONES #####################################
     def export_zones_list(self):
@@ -2111,6 +2268,7 @@ def menu3(utm, mode, section):
             print('4   - Экспортировать список "Серверы авторизации".')
             print('5   - Экспортировать список "Профили авторизации".')
             print('6   - Экспортировать список "Captive-профили".')
+            print('7   - Экспортировать список "Captive-портал".')
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -2164,6 +2322,7 @@ def menu3(utm, mode, section):
             print("8   - Импортировать список серверов авторизации SAML.")
             print('9   - Импортировать список "Профили авторизации".')
             print('10  - Импортировать список "Captive-профили".')
+            print('11  - Импортировать список "Captive-портал".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -2311,6 +2470,8 @@ def main():
                     utm.export_auth_profiles()
                 elif command == 406:
                     utm.export_captive_profiles()
+                elif command == 407:
+                    utm.export_captive_portal_rules()
                 elif command == 499:
                     utm.export_groups_lists()
                     utm.export_users_lists()
@@ -2318,6 +2479,7 @@ def main():
                     utm.export_auth_servers()
                     utm.export_auth_profiles()
                     utm.export_captive_profiles()
+                    utm.export_captive_portal_rules()
 
                 elif command == 9999:
                     utm.export_morphology_lists()
@@ -2350,6 +2512,7 @@ def main():
                     utm.export_auth_servers()
                     utm.export_auth_profiles()
                     utm.export_captive_profiles()
+                    utm.export_captive_portal_rules()
             except UtmError as err:
                 print(err)
             except Exception as err:
@@ -2457,6 +2620,8 @@ def main():
                         utm.import_auth_profiles()
                     elif command == 410:
                         utm.import_captive_profiles()
+                    elif command == 411:
+                        utm.import_captive_portal_rules()
                     elif command == 499:
                         utm.import_groups_list()
                         utm.import_users_list()
@@ -2468,6 +2633,7 @@ def main():
                         utm.import_saml_server()
                         utm.import_auth_profiles()
                         utm.import_captive_profiles()
+                        utm.import_captive_portal_rules()
                         
                     elif command == 9999:
                         utm.import_morphology()
@@ -2503,6 +2669,7 @@ def main():
                         utm.import_saml_server()
                         utm.import_auth_profiles()
                         utm.import_captive_profiles()
+                        utm.import_captive_portal_rules()
                 except UtmError as err:
                     print(err)
                 except Exception as err:

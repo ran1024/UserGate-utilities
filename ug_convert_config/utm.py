@@ -796,9 +796,44 @@ class UtmXmlRpc:
     def update_captive_profile(self, profile):
         """Обновить Captive-профиль"""
         try:
-            result = self._server.v1.captiveportal.profile.update(self._auth_token, profile['id'], profile)
+            profile_id = self.captive_profiles[profile['name']]
+            result = self._server.v1.captiveportal.profile.update(self._auth_token, profile_id, profile)
         except rpc.Fault as err:
             return 1, f"\tОшибка utm.update_captive_profile: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
+    def get_captive_portal_rules(self):
+        """Получить список правил Captive-попортала"""
+        try:
+            result = self._server.v1.captiveportal.rules.list(self._auth_token, 0, 1000, {})
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_captive_portal_rules: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result['items']), result['items']
+
+    def add_captive_portal_rules(self, rule):
+        """Добавить новое правило Captive-портала"""
+        if rule['name'] in self.captive_portal_rules.keys():
+            return 1, f'\tПравило Captive-портала "{rule["name"]}" уже существует.'
+        try:
+            result = self._server.v1.captiveportal.rule.add(self._auth_token, rule)
+        except rpc.Fault as err:
+            if err.faultCode == 110:
+                return 2, f'\tПравило Captive-портала "{rule["name"]}" не добавлено — {err.faultString}.'
+            else:
+                return 2, f"\tОшибка utm.add_captive_portal_rules: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+            self.captive_portal_rules[rule['name']] = result
+
+    def update_captive_portal_rule(self, rule):
+        """Обновить правило Captive-портала"""
+        try:
+            rule_id = self.captive_portal_rules[rule['name']]
+            result = self._server.v1.captiveportal.rule.update(self._auth_token, rule_id, rule)
+        except rpc.Fault as err:
+            return 1, f"\tОшибка utm.update_captive_portal_rule: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result     # Возвращает True
 
