@@ -837,4 +837,25 @@ class UtmXmlRpc:
         else:
             return 0, result     # Возвращает True
 
+    def get_byod_policy(self):
+        """Получить список политик BYOD"""
+        try:
+            result = self._server.v1.byod.rules.list(self._auth_token, 0, 1000, {})
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_byod_policy: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result['items']), result['items']
+
+    def get_ldap_user(self, user_domain, user_name):
+        """Получить GUID пользователя LDAP по его имени"""
+        user = []
+        try:
+            result = self._server.v1.auth.ldap.servers.list(self._auth_token, {})
+            for x in result:
+                if user_domain in x['domains']:
+                    user = self._server.v1.ldap.users.list(self._auth_token, x['id'], user_name)
+        except rpc.Fault as err:
+            return 1, f"\tОшибка utm.get_ldap_user: [{err.faultCode}] — {err.faultString}\n\tПроверьте настройки LDAP-коннектора!"
+        return 0, user[0]['guid'] if user else 0
+
 class UtmError(Exception): pass

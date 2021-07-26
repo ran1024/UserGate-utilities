@@ -1261,14 +1261,13 @@ class UTM(UtmXmlRpc):
             print(f'\t\033[31mИсключения кеширования http не импортированы!\n\tНе найден файл "data/settings/config_proxy_exceptions.json" с сохранённой конфигурацией!\033[0;0m')
             return
 
-# Ждём исправления бага!
-#        _, data = self.get_nlist_list('httpcwl')
-#        for item in settings:
-#            err, result = self.add_nlist_item(data['id'], item)
-#            if err != 0:
-#                print(f'\t{result}')
-#            else:
-#                print(f'\tВ исключения кеширования добавлен URL: "{item["value"]}".')
+        _, data = self.get_nlist_list('httpcwl')
+        for item in settings:
+            err, result = self.add_nlist_item(data['id'], item)
+            if err != 0:
+                print(f'\t{result}')
+            else:
+                print(f'\tВ исключения кеширования добавлен URL: "{item["value"]}".')
 
     def export_proxy_portal(self):
         """Выгрузить настройки веб-портала"""
@@ -1301,6 +1300,7 @@ class UTM(UtmXmlRpc):
                 item['users'] = [x[1] for x in users]
             else:
                 item['users'] = [x['name'] for x in users]
+
         with open(f"data/users_and_devices/config_groups.json", "w") as fd:
             json.dump(data, fd, indent=4, ensure_ascii=False)
         print(f"\tСписок локальных групп выгружен в файл data/users_and_devices/config_groups.json")
@@ -1331,10 +1331,22 @@ class UTM(UtmXmlRpc):
             else:
                 self.list_groups[item['name']] = result
                 print(f'\tЛокальная группа "{item["name"]}" добавлена.')
-#            for user_name in users:
-#                err2, result2 = self.add_user_in_group(self.list_groups[item['name']], user_guid])
-#                if err2 != 0:
-#                    print("\n", f"\033[31m{result2}\033[0m")
+
+            for user_name in users:
+                i = user_name.partition("\\")
+                if i[2]:
+                    err, result = self.get_ldap_user(i[0], i[2])
+                    if err != 0:
+                        print(f"\033[31m{result}\033[0m")
+                        break
+                    elif not result:
+                        print(f'\t\033[31mНет LDAP-коннектора для домена "{i[0]}"!\n\tИмпортируйте и настройте LDAP-коннектор. Затем повторите импорт групп.\033[0m')
+                        break
+                    err2, result2 = self.add_user_in_group(self.list_groups[item['name']], result)
+                    if err2 != 0:
+                        print(f"\033[31m{result2}\033[0m")
+                    else:
+                        print(f'\t\tПользователь "{user_name}" добавлен в группу.')
 
     def export_users_lists(self):
         """Выгружает список локальных пользователей"""
@@ -1434,6 +1446,7 @@ class UTM(UtmXmlRpc):
         for item in data:
             item['enabled'] = False
             item['keytab_exists'] = False
+            item.pop("cc", None)
             err, result = self.add_auth_server('ldap', item)
             if err == 1:
                 print(result)
@@ -1457,6 +1470,7 @@ class UTM(UtmXmlRpc):
             print("\tНет серверов авторизации NTLM для импорта.")
             return
         for item in ntlm:
+            item.pop("cc", None)
             err, result = self.add_auth_server('ntlm', item)
             if err == 1:
                 print(result)
@@ -1479,6 +1493,7 @@ class UTM(UtmXmlRpc):
             print("\tНет серверов авторизации RADIUS для импорта.")
             return
         for item in data:
+            item.pop("cc", None)
             err, result = self.add_auth_server('radius', item)
             if err == 1:
                 print(result)
@@ -1502,6 +1517,7 @@ class UTM(UtmXmlRpc):
             print("\tНет серверов авторизации TACACS для импорта.")
             return
         for item in data:
+            item.pop("cc", None)
             err, result = self.add_auth_server('tacacs', item)
             if err == 1:
                 print(result)
@@ -1525,6 +1541,7 @@ class UTM(UtmXmlRpc):
             print("\tНет серверов авторизации SAML для импорта.")
             return
         for item in data:
+            item.pop("cc", None)
             err, result = self.add_auth_server('saml', item)
             if err == 1:
                 print(result)
@@ -1774,6 +1791,68 @@ class UTM(UtmXmlRpc):
             json.dump(data, fd, indent=4, ensure_ascii=False)
         print(f'\tСписок "Captive-портал" выгружен в файл "data/users_and_devices/config_captive_portal_rules.json".')
 
+    def set_src_zone_and_ips(self, item):
+        if item['src_zones']:
+            try:
+                item['src_zones'] = [self.zones[x] for x in item['src_zones']]
+            except KeyError as err:
+                print(f'\t\033[33mИсходная зона {err} в правиле "{item["name"]}" не найдена.\n\tЗагрузите список зон и повторите попытку.\033[0m')
+                item['src_zones'] = []
+        if item['src_ips']:
+            try:
+                for x in item['src_ips']:
+                    if x[0] == 'list_id':
+                        x[1] = self.list_IP[x[1]]
+                    elif x[0] == 'urllist_id':
+                        x[1] = self.list_url[x[1]]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден адрес источника: {err} в правиле "{item["name"]}".\n\tЗагрузите списки IP-адресов и URL и повторите попытку.\033[0m')
+                item['src_ips'] = []
+
+    def set_dst_zone_and_ips(self, item):
+        if item['dst_zones']:
+            try:
+                item['dst_zones'] = [self.zones[x] for x in item['dst_zones']]
+            except KeyError as err:
+                print(f'\t\033[33mЗона назначения {err} в правиле "{item["name"]}" не найдена.\n\tЗагрузите список зон и повторите попытку.\033[0m')
+                item['dst_zones'] = []
+        if item['dst_ips']:
+            try:
+                for x in item['dst_ips']:
+                    if x[0] == 'list_id':
+                        x[1] = self.list_IP[x[1]]
+                    elif x[0] == 'urllist_id':
+                        x[1] = self.list_url[x[1]]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден адрес назначения: {err} в правиле "{item["name"]}".\n\tЗагрузите списки IP-адресов и URL и повторите попытку.\033[0m')
+                item['dst_ips'] = []
+
+    def set_urls_and_categories(self, item):
+        if item['urls']:
+            try:
+                item['urls'] = [self.list_url[x] for x in item['urls']]
+            except KeyError:
+                print(f'\t\033[33mНе найден URL в правиле "{item["name"]}".\n\tЗагрузите списки URL и повторите попытку.\033[0m')
+                item['urls'] = []
+        if item['url_categories']:
+            try:
+                for x in item['url_categories']:
+                    if x[0] == 'list_id':
+                        x[1] = self.list_urlcategorygroup[x[1]]
+                    elif x[0] == 'category_id':
+                        x[1] = self._categories[x[1]]
+            except KeyError as err:
+                print(f'\t\033[33mНе найдена группа URL-категорий: {err} в правиле "{item["name"]}".\n\tЗагрузите ктегории URL и повторите попытку.\033[0m')
+                item['url_categories'] = []
+
+    def set_time_restrictions(self, item):
+        if item['time_restrictions']:
+            try:
+                item['time_restrictions'] = [self.list_calendar[x] for x in item['time_restrictions']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден календарь: {err}  в правиле "{item["name"]}".\n\tЗагрузите списки URL и повторите попытку.\033[0m')
+                item['time_restrictions'] = []
+
     def import_captive_portal_rules(self):
         """Импортировать список правил Captive-портала"""
         print('Импорт списка правил "Captive-портала" раздела "Пользователи и устройства":')
@@ -1792,63 +1871,12 @@ class UTM(UtmXmlRpc):
                 try:
                     item['profile_id'] = self.captive_profiles[item['profile_id']]
                 except KeyError:
-                    print(f'\t\033[33mCaptive-профиль "{item["profile_id"]}" не найден.\n\tЗагрузите Captive-профили и повторите попытку.\033[0m')
+                    print(f'\t\033[33mCaptive-профиль "{item["profile_id"]}"  в правиле "{item["name"]}" не найден.\n\tЗагрузите Captive-профили и повторите попытку.\033[0m')
                     item['profile_id'] = 0
-            if item['src_zones']:
-                try:
-                    item['src_zones'] = [self.zones[x] for x in item['src_zones']]
-                except KeyError:
-                    print(f'\t\033[33mИсходная зона не найдена.\n\tЗагрузите список зон и повторите попытку.\033[0m')
-                    item['src_zones'] = []
-            if item['dst_zones']:
-                try:
-                    item['dst_zones'] = [self.zones[x] for x in item['dst_zones']]
-                except KeyError:
-                    print(f'\t\033[33mЗона назначения не найдена.\n\tЗагрузите список зон и повторите попытку.\033[0m')
-                    item['dst_zones'] = []
-            if item['src_ips']:
-                try:
-                    for x in item['src_ips']:
-                        if x[0] == 'list_id':
-                            x[1] = self.list_IP[x[1]]
-                        elif x[0] == 'urllist_id':
-                            x[1] = self.list_url[x[1]]
-                except KeyError as err:
-                    print(f'\t\033[33mНе найден адрес источника: {err} .\n\tЗагрузите списки IP-адресов и URL и повторите попытку.\033[0m')
-                    item['src_ips'] = []
-            if item['dst_ips']:
-                try:
-                    for x in item['dst_ips']:
-                        if x[0] == 'list_id':
-                            x[1] = self.list_IP[x[1]]
-                        elif x[0] == 'urllist_id':
-                            x[1] = self.list_url[x[1]]
-                except KeyError as err:
-                    print(f'\t\033[33mНе найден адрес назначения: {err} .\n\tЗагрузите списки IP-адресов и URL и повторите попытку.\033[0m')
-                    item['dst_ips'] = []
-            if item['urls']:
-                try:
-                    item['urls'] = [self.list_url[x] for x in item['urls']]
-                except KeyError:
-                    print(f'\t\033[33mНе найден URL.\n\tЗагрузите списки URL и повторите попытку.\033[0m')
-                    item['urls'] = []
-            if item['url_categories']:
-                try:
-                    for x in item['url_categories']:
-                        if x[0] == 'list_id':
-                            x[1] = self.list_urlcategorygroup[x[1]]
-                        elif x[0] == 'category_id':
-                            x[1] = self._categories[x[1]]
-                except KeyError as err:
-                    print(f'\t\033[33mНе найдена группа URL-категорий: {err} в правиле "{item["name"]}".\n\tЗагрузите ктегории URL и повторите попытку.\033[0m')
-                    item['url_categories'] = []
-            if item['time_restrictions']:
-                try:
-                    item['time_restrictions'] = [self.list_calendar[x] for x in item['time_restrictions']]
-                except KeyError as err:
-                    print(f'\t\033[33mНе найден календарь: {err}.\n\tЗагрузите списки URL и повторите попытку.\033[0m')
-                    item['time_restrictions'] = []
-
+            self.set_src_zone_and_ips(item)
+            self.set_dst_zone_and_ips(item)
+            self.set_urls_and_categories(item)
+            self.set_time_restrictions(item)
 
             err, result = self.add_captive_portal_rules(item)
             if err == 1:
@@ -1862,6 +1890,38 @@ class UTM(UtmXmlRpc):
                 print(f"\033[31m{result}\033[0m")
             else:
                 print(f'\tПравило Captive-портала "{item["name"]}" добавлено.')
+
+    def export_byod_policy(self):
+        """Выгрузить список Политики BYOD"""
+        print('Выгружается список "Политики BYOD" раздела "Пользователи и устройства":')
+        if not os.path.isdir('data/users_and_devices'):
+            os.mkdir('data/users_and_devices')
+
+        _, data = self.get_byod_policy()
+
+        print(self.list_groups)
+        for item in data:
+            item.pop('id', None)
+            item.pop('rownumber', None)
+            item.pop('position_layer', None),
+            
+#            item['groups'] = [self.list_groups[x[1]] for x in item['groups']]
+#            item['dst_zones'] = [self.zones[x] for x in item['dst_zones']]
+            for x in item['users']:
+                if x[0] == 'group':
+                    x[1] = self.list_groups[x[1]]
+#                elif x[0] == 'urllist_id':
+#                    x[1] = self.list_url[x[1]]
+#            for x in item['dst_ips']:
+#                if x[0] == 'list_id':
+#                    x[1] = self.list_IP[x[1]]
+#                elif x[0] == 'urllist_id':
+#                    x[1] = self.list_url[x[1]]
+#            item['urls'] = [self.list_url[x] for x in item['urls']]
+
+        with open("data/users_and_devices/config_byod_policy.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Политики BYOD" выгружен в файл "data/users_and_devices/config_byod_policy.json".')
 
 ################### ZONES #####################################
     def export_zones_list(self):
@@ -2269,6 +2329,7 @@ def menu3(utm, mode, section):
             print('5   - Экспортировать список "Профили авторизации".')
             print('6   - Экспортировать список "Captive-профили".')
             print('7   - Экспортировать список "Captive-портал".')
+            print('8   - Экспортировать список "Политики BYOD".')
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -2472,6 +2533,8 @@ def main():
                     utm.export_captive_profiles()
                 elif command == 407:
                     utm.export_captive_portal_rules()
+                elif command == 408:
+                    utm.export_byod_policy()
                 elif command == 499:
                     utm.export_groups_lists()
                     utm.export_users_lists()
@@ -2480,6 +2543,7 @@ def main():
                     utm.export_auth_profiles()
                     utm.export_captive_profiles()
                     utm.export_captive_portal_rules()
+                    utm.export_byod_policy()
 
                 elif command == 9999:
                     utm.export_morphology_lists()
@@ -2513,6 +2577,7 @@ def main():
                     utm.export_auth_profiles()
                     utm.export_captive_profiles()
                     utm.export_captive_portal_rules()
+                    utm.export_byod_policy()
             except UtmError as err:
                 print(err)
             except Exception as err:
