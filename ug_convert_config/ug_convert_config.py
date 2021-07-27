@@ -32,12 +32,13 @@ class UTM(UtmXmlRpc):
         self.list_netflow = {}          # Список профилей netflow {name: id}
         self.list_ssl_profiles = {}     # Список профилей ssl {name: id}
         self.list_groups = {}           # Список локальных групп {guid: name} для экспорта и {name: guid} для импорта
-        self.list_users = {}            # Список локальных пользователей {name: guid}
+        self.list_users = {}            # Список локальных пользователей {guid: name} для экспорта и {name: guid} для импорта
         self.profiles_2fa = {}          # Список профилей MFA {name: guid}
         self.auth_servers = {}          # Список серверов авторизации {id: name} для экспорта и {name: id} для импорта
         self.auth_profiles = {}         # Список профилей авторизации {id: name} для экспорта и {name: id} для импорта
         self.captive_profiles = {}      # Список captive-профилей {id: name} для экспорта и {name: id} для импорта
         self.captive_portal_rules = {}  # Список captive-профилей {name: id}
+        self.byod_rules = {}            # Список политик BYOD {name: id} для импорта
         self._connect()
 
     def init_struct_for_export(self):
@@ -84,6 +85,9 @@ class UTM(UtmXmlRpc):
 
         except rpc.Fault as err:
             print(f"\033[31mОшибка ug_convert_config/init_struct_for_export(): [{err.faultCode}] {err.faultString}\033[0m")
+
+        total, data = self.get_users_list()
+        self.list_users = {x['guid']: x['name'] for x in data if total}
 
         total, data = self.get_zones_list()
         self.zones = {x['id']: x['name'] for x in data if total}
@@ -1335,7 +1339,7 @@ class UTM(UtmXmlRpc):
             for user_name in users:
                 i = user_name.partition("\\")
                 if i[2]:
-                    err, result = self.get_ldap_user(i[0], i[2])
+                    err, result = self.get_ldap_user_guid(i[0], i[2])
                     if err != 0:
                         print(f"\033[31m{result}\033[0m")
                         break
@@ -1899,29 +1903,101 @@ class UTM(UtmXmlRpc):
 
         _, data = self.get_byod_policy()
 
-        print(self.list_groups)
         for item in data:
             item.pop('id', None)
             item.pop('rownumber', None)
             item.pop('position_layer', None),
+            item.pop('deleted_users', None)
             
-#            item['groups'] = [self.list_groups[x[1]] for x in item['groups']]
-#            item['dst_zones'] = [self.zones[x] for x in item['dst_zones']]
             for x in item['users']:
-                if x[0] == 'group':
-                    x[1] = self.list_groups[x[1]]
-#                elif x[0] == 'urllist_id':
-#                    x[1] = self.list_url[x[1]]
-#            for x in item['dst_ips']:
-#                if x[0] == 'list_id':
-#                    x[1] = self.list_IP[x[1]]
-#                elif x[0] == 'urllist_id':
-#                    x[1] = self.list_url[x[1]]
-#            item['urls'] = [self.list_url[x] for x in item['urls']]
+                if x[0] == 'user':
+                    try:
+                        x[1] = self.list_users[x[1]]
+                    except KeyError:
+                        err, result = self.get_ldap_user_name(x[1])
+                        if err != 0:
+                            print(f"\033[31m{result}\033[0m")
+                            x[1] = False
+                        else:
+                            x[1] = result
+                elif x[0] == 'group':
+                    try:
+                        x[1] = self.list_groups[x[1]]
+                    except KeyError:
+                        err, result = self.get_ldap_group_name(x[1])
+                        if err != 0:
+                            print(f"\033[31m{result}\033[0m")
+                            x[1] = False
+                        else:
+                            x[1] = result
 
         with open("data/users_and_devices/config_byod_policy.json", "w") as fd:
             json.dump(data, fd, indent=4, ensure_ascii=False)
         print(f'\tСписок "Политики BYOD" выгружен в файл "data/users_and_devices/config_byod_policy.json".')
+
+    def import_byod_policy(self):
+        """Импортировать список Политики BYOD"""
+        print('Импорт списка "Политики BYOD" раздела "Пользователи и устройства":')
+        try:
+            with open("data/users_and_devices/config_byod_policy.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Политики BYOD" не импортирован!\n\tНе найден файл "data/users_and_devices/config_byod_policy.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет политик BYOD для импорта.")
+            return
+
+        total, byods = self.get_byod_policy()
+        self.byod_rules = {x['name']: x['id'] for x in byods if total}
+
+        for item in data:
+            users = []
+            for x in item['users']:
+                if x[0] == 'user' and x[1]:
+                    i = x[1].partition("\\")
+                    if i[2]:
+                        err, result = self.get_ldap_user_guid(i[0], i[2])
+                        if err != 0:
+                            print(f"\033[31m{result}\033[0m")
+                        elif not result:
+                            print(f'\t\033[31mНет LDAP-коннектора для домена "{i[0]}"!\n\tИмпортируйте и настройте LDAP-коннектор. Затем повторите импорт групп.\033[0m')
+                        else:
+                            x[1] = result
+                            users.append(x)
+                    else:
+                        x[1] = self.list_users[x[1]]
+                        users.append(x)
+
+                elif x[0] == 'group' and x[1]:
+                    i = x[1].partition("\\")
+                    if i[2]:
+                        err, result = self.get_ldap_group_guid(i[0], i[2])
+                        if err != 0:
+                            print(f"\033[31m{result}\033[0m")
+                        elif not result:
+                            print(f'\t\033[31mНет LDAP-коннектора для домена "{i[0]}"!\n\tИмпортируйте и настройте LDAP-коннектор. Затем повторите импорт групп.\033[0m')
+                        else:
+                            x[1] = result
+                            users.append(x)
+                    else:
+                        x[1] = self.list_groups[x[1]]
+                        users.append(x)
+            item['users'] = users
+
+            err, result = self.add_byod_policy(item)
+            if err == 1:
+                print(result, end= ' - ')
+                err1, result1 = self.update_byod_policy(item)
+                if err1 != 0:
+                    print("\n", f"\033[31m{result1}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            elif err == 2:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                print(f'\tПравило BYOD "{item["name"]}" добавлено.')
 
 ################### ZONES #####################################
     def export_zones_list(self):
@@ -2384,6 +2460,7 @@ def menu3(utm, mode, section):
             print('9   - Импортировать список "Профили авторизации".')
             print('10  - Импортировать список "Captive-профили".')
             print('11  - Импортировать список "Captive-портал".')
+            print('12  - Импортировать список "Политики BYOD".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -2687,6 +2764,8 @@ def main():
                         utm.import_captive_profiles()
                     elif command == 411:
                         utm.import_captive_portal_rules()
+                    elif command == 412:
+                        utm.import_byod_policy()
                     elif command == 499:
                         utm.import_groups_list()
                         utm.import_users_list()
@@ -2699,6 +2778,7 @@ def main():
                         utm.import_auth_profiles()
                         utm.import_captive_profiles()
                         utm.import_captive_portal_rules()
+                        utm.import_byod_policy()
                         
                     elif command == 9999:
                         utm.import_morphology()
@@ -2735,6 +2815,7 @@ def main():
                         utm.import_auth_profiles()
                         utm.import_captive_profiles()
                         utm.import_captive_portal_rules()
+                        utm.import_byod_policy()
                 except UtmError as err:
                     print(err)
                 except Exception as err:

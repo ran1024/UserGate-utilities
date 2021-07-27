@@ -846,16 +846,80 @@ class UtmXmlRpc:
             sys.exit(1)
         return len(result['items']), result['items']
 
-    def get_ldap_user(self, user_domain, user_name):
+    def add_byod_policy(self, rule):
+        """Добавить новое правило в Политики BYOD"""
+        if rule['name'] in self.byod_rules.keys():
+            return 1, f'\tПравило BYOD "{rule["name"]}" уже существует.'
+        try:
+            result = self._server.v1.byod.rule.add(self._auth_token, rule)
+        except rpc.Fault as err:
+            if err.faultCode == 110:
+                return 2, f'\tПравило BYOD "{rule["name"]}" не добавлено — {err.faultString}.'
+            else:
+                return 2, f"\tОшибка utm.add_byod_policy: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+            self.byod_rules[rule['name']] = result
+
+    def update_byod_policy(self, rule):
+        """Обновить правило Captive-портала"""
+        try:
+            rule_id = self.byod_rules[rule['name']]
+            result = self._server.v1.byod.rule.update(self._auth_token, rule_id, rule)
+        except rpc.Fault as err:
+            return 1, f"\tОшибка utm.update_byod_policy: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
+    def get_ldap_user_guid(self, ldap_domain, user_name):
         """Получить GUID пользователя LDAP по его имени"""
         user = []
         try:
             result = self._server.v1.auth.ldap.servers.list(self._auth_token, {})
             for x in result:
-                if user_domain in x['domains']:
-                    user = self._server.v1.ldap.users.list(self._auth_token, x['id'], user_name)
+                if ldap_domain in x['domains']:
+                    users = self._server.v1.ldap.users.list(self._auth_token, x['id'], user_name)
         except rpc.Fault as err:
-            return 1, f"\tОшибка utm.get_ldap_user: [{err.faultCode}] — {err.faultString}\n\tПроверьте настройки LDAP-коннектора!"
-        return 0, user[0]['guid'] if user else 0
+            return 1, f"\tОшибка utm.get_ldap_user_guid: [{err.faultCode}] — {err.faultString}\n\tПроверьте настройки LDAP-коннектора!"
+        return 0, users[0]['guid'] if users else 0
+
+    def get_ldap_group_guid(self, ldap_domain, group_name):
+        """Получить GUID группы LDAP по её имени"""
+        user = []
+        try:
+            result = self._server.v1.auth.ldap.servers.list(self._auth_token, {})
+            for x in result:
+                if ldap_domain in x['domains']:
+                    groups = self._server.v1.ldap.groups.list(self._auth_token, x['id'], group_name)
+        except rpc.Fault as err:
+            return 1, f"\tОшибка utm.get_ldap_group_guid: [{err.faultCode}] — {err.faultString}\n\tПроверьте настройки LDAP-коннектора!"
+        return 0, groups[0]['guid'] if groups else 0
+
+    def get_ldap_user_name(self, user_guid):
+        """Получить имя пользователя LDAP по его GUID"""
+        user = []
+        try:
+            result = self._server.v1.ldap.user.fetch(self._auth_token, user_guid)
+        except rpc.Fault as err:
+            if err.faultCode == 1:
+                return 2, f'\tНе возможно получить имя доменного пользователя.\n\tПроверьте что версия UTM 5.0.6.4865 (6.1.3.10697) или выше.'
+            else:
+                return 1, f"\tОшибка utm.get_ldap_user_name: [{err.faultCode}] — {err.faultString}\n\tПроверьте настройки LDAP-коннектора!"
+        name = result['name']
+        i = name.find('(')
+        return 0, name[i+1:len(name)-1]
+
+    def get_ldap_group_name(self, group_guid):
+        """Получить имя группы LDAP по её GUID"""
+        user = []
+        try:
+            result = self._server.v1.ldap.group.fetch(self._auth_token, group_guid)
+        except rpc.Fault as err:
+            if err.faultCode == 1:
+                return 2, f'\tНе возможно получить имя доменной группы.\n\tПроверьте что версия UTM 5.0.6.4865 (6.1.3.10697) или выше.'
+            else:
+                return 1, f"\tОшибка utm.get_ldap_group_name: [{err.faultCode}] — {err.faultString}\n\tПроверьте настройки LDAP-коннектора!"
+        data = {x[0]: x[1] for x in [x.split('=') for x in result['name'].split(',')]}
+        return 0, f"{result['guid'].split(':')[0]}\\{data['CN']}"
 
 class UtmError(Exception): pass
