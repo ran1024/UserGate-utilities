@@ -40,6 +40,7 @@ class UTM(UtmXmlRpc):
         self.captive_portal_rules = {}  # Список captive-профилей {name: id}
         self.byod_rules = {}            # Список политик BYOD {name: id} для импорта
         self.scenarios_rules = {}       # Список сценариев {name: id} для импорта
+        self.firewall_rules = {}        # Список правил МЭ {name: id} для импорта
         self.default_url_category = {
             'Parental Control': 'URL_CATEGORY_GROUP_PARENTAL_CONTROL',
             'Productivity': 'URL_CATEGORY_GROUP_PRODUCTIVITY',
@@ -1913,17 +1914,64 @@ class UTM(UtmXmlRpc):
             self.set_time_restrictions(item)
             item['services'] = [self.services[x] for x in item['services']]
             self.get_apps(item['apps'])
-#            for app in item['apps']:
-#                if app[0] == 'ro_group':
-#                    app[1] = self.l7_categories[app[1]] if app[1] != 0 else "All"
-#                elif app[0] == 'group':
-#                    app[1] = self.list_applicationgroup[app[1]]
-#                elif app[0] == 'app':
-#                    app[1] = self.l7_apps[app[1]]
 
         with open("data/network_policies/config_firewall_rules.json", "w") as fd:
             json.dump(data, fd, indent=4, ensure_ascii=False)
         print(f'\tСписок "Межсетевой экран" выгружен в файл "data/network_policies/config_firewall_rules.json".')
+
+    def import_firewall_rules(self):
+        """Импортировать список правил межсетевого экрана"""
+        print('Импорт списка "Межсетевой экран" раздела "Политики сети":')
+        try:
+            with open("data/network_policies/config_firewall_rules.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Межсетевой экран" не импортирован!\n\tНе найден файл "data/network_policies/config_firewall_rules.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет правил межсетевого экрана для импорта.")
+            return
+
+        total, scenarios = self.get_scenarios_rules()
+        self.scenarios_rules = {x['name']: x['id'] for x in scenarios if total}
+        total, firewall = self.get_firewall_rules()
+        self.firewall_rules = {x['name']: x['id'] for x in firewall if total}
+
+        for item in data:
+            if item['scenario_rule_id']:
+                try:
+                    item['scenario_rule_id'] = self.scenarios_rules[item['scenario_rule_id']]
+                except KeyError as err:
+                    print(f'\t\033[33mНе найден сценарий {err} для правила "{item["name"]}".\n\tЗагрузите сценарии и повторите попытку.\033[0m')
+                    item['scenario_rule_id'] = False
+            self.get_guids_users_and_groups(item)
+            self.set_src_zone_and_ips(item)
+            self.set_dst_zone_and_ips(item)
+            self.set_time_restrictions(item)
+            try:
+                item['services'] = [self.services[x] for x in item['services']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден сервис {err} для правила "{item["name"]}".\n\tЗагрузите сервисы и повторите попытку.\033[0m')
+                item['services'] = []
+            try:
+                self.get_apps(item['apps'])
+            except KeyError as err:
+                print(f'\t\033[33mНе найдено приложение {err} для сценария "{item["name"]}".\n\tЗагрузите приложения и повторите попытку.\033[0m')
+                item['apps'] = []
+
+            err, result = self.add_firewall_rule(item)
+            if err == 1:
+                print(result, end= ' - ')
+                err1, result1 = self.update_firewall_rule(item)
+                if err1 != 0:
+                    print("\n", f"\033[31m{result1}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            elif err == 2:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                print(f'\tПравило МЭ "{item["name"]}" добавлено.')
 
     def export_scenarios(self):
         """Выгрузить список сценариев"""
@@ -1975,19 +2023,19 @@ class UTM(UtmXmlRpc):
                     try:
                         self.get_apps(condition['apps'])
                     except KeyError as err:
-                        print(f'\t\033[33mНе найдено приложение "{err}" для сценария "{item["name"]}".\n\tЗагрузите приложения и повторите попытку.\033[0m')
+                        print(f'\t\033[33mНе найдено приложение {err} для сценария "{item["name"]}".\n\tЗагрузите приложения и повторите попытку.\033[0m')
                         condition['apps'] = []
                 elif condition['kind'] == 'mime_types':
                     try:
                         condition['content_types'] = [self.list_mime[x] for x in condition['content_types']]
                     except KeyError as err:
-                        print(f'\t\033[33mНе найден тип контента "{err}" для сценария "{item["name"]}".\n\tЗагрузите типы контента и повторите попытку.\033[0m')
+                        print(f'\t\033[33mНе найден тип контента {err} для сценария "{item["name"]}".\n\tЗагрузите типы контента и повторите попытку.\033[0m')
                         condition['content_types'] = []
                 elif condition['kind'] == 'url_category':
                     try:
                         condition['url_categories'] = [[x[0], self.list_urlcategorygroup[x[1]] if x[0] == 'list_id' else self._categories[x[1]]] for x in condition['url_categories']]
                     except KeyError as err:
-                        print(f'\t\033[33mНе найдена категория URL "{err}" для сценария "{item["name"]}".\n\tЗагрузите категории URL и повторите попытку.\033[0m')
+                        print(f'\t\033[33mНе найдена категория URL {err} для сценария "{item["name"]}".\n\tЗагрузите категории URL и повторите попытку.\033[0m')
                         condition['url_categories'] = []
 
             err, result = self.add_scenarios_rule(item)
@@ -2316,7 +2364,7 @@ class UTM(UtmXmlRpc):
             try:
                 item['src_zones'] = [self.zones[x] for x in item['src_zones']]
             except KeyError as err:
-                print(f'\t\033[33mИсходная зона "{err}" для правила "{item["name"]}" не найдена.\n\tЗагрузите список зон и повторите попытку.\033[0m')
+                print(f'\t\033[33mИсходная зона {err} для правила "{item["name"]}" не найдена.\n\tЗагрузите список зон и повторите попытку.\033[0m')
                 item['src_zones'] = []
         if item['src_ips']:
             try:
@@ -2326,7 +2374,7 @@ class UTM(UtmXmlRpc):
                     elif x[0] == 'urllist_id':
                         x[1] = self.list_url[x[1]]
             except KeyError as err:
-                print(f'\t\033[33mНе найден адрес источника "{err}" для правила "{item["name"]}".\n\tЗагрузите списки IP-адресов и URL и повторите попытку.\033[0m')
+                print(f'\t\033[33mНе найден адрес источника {err} для правила "{item["name"]}".\n\tЗагрузите списки IP-адресов и URL и повторите попытку.\033[0m')
                 item['src_ips'] = []
 
     def set_dst_zone_and_ips(self, item):
@@ -2334,7 +2382,7 @@ class UTM(UtmXmlRpc):
             try:
                 item['dst_zones'] = [self.zones[x] for x in item['dst_zones']]
             except KeyError as err:
-                print(f'\t\033[33mЗона назначения "{err}" для правила "{item["name"]}" не найдена.\n\tЗагрузите список зон и повторите попытку.\033[0m')
+                print(f'\t\033[33mЗона назначения {err} для правила "{item["name"]}" не найдена.\n\tЗагрузите список зон и повторите попытку.\033[0m')
                 item['dst_zones'] = []
         if item['dst_ips']:
             try:
@@ -2344,7 +2392,7 @@ class UTM(UtmXmlRpc):
                     elif x[0] == 'urllist_id':
                         x[1] = self.list_url[x[1]]
             except KeyError as err:
-                print(f'\t\033[33mНе найден адрес назначения "{err}" для правила "{item["name"]}".\n\tЗагрузите списки IP-адресов и URL и повторите попытку.\033[0m')
+                print(f'\t\033[33mНе найден адрес назначения {err} для правила "{item["name"]}".\n\tЗагрузите списки IP-адресов и URL и повторите попытку.\033[0m')
                 item['dst_ips'] = []
 
     def set_urls_and_categories(self, item):
@@ -2352,7 +2400,7 @@ class UTM(UtmXmlRpc):
             try:
                 item['urls'] = [self.list_url[x] for x in item['urls']]
             except KeyError as err:
-                print(f'\t\033[33mНе найден URL "{err}" для правила "{item["name"]}".\n\tЗагрузите списки URL и повторите попытку.\033[0m')
+                print(f'\t\033[33mНе найден URL {err} для правила "{item["name"]}".\n\tЗагрузите списки URL и повторите попытку.\033[0m')
                 item['urls'] = []
         if item['url_categories']:
             try:
@@ -2362,7 +2410,7 @@ class UTM(UtmXmlRpc):
                     elif x[0] == 'category_id':
                         x[1] = self._categories[x[1]]
             except KeyError as err:
-                print(f'\t\033[33mНе найдена группа URL-категорий "{err}" для правила "{item["name"]}".\n\tЗагрузите ктегории URL и повторите попытку.\033[0m')
+                print(f'\t\033[33mНе найдена группа URL-категорий {err} для правила "{item["name"]}".\n\tЗагрузите ктегории URL и повторите попытку.\033[0m')
                 item['url_categories'] = []
 
     def set_time_restrictions(self, item):
@@ -2370,14 +2418,19 @@ class UTM(UtmXmlRpc):
             try:
                 item['time_restrictions'] = [self.list_calendar[x] for x in item['time_restrictions']]
             except KeyError as err:
-                print(f'\t\033[33mНе найден календарь "{err}" для правила "{item["name"]}".\n\tЗагрузите списки URL и повторите попытку.\033[0m')
+                print(f'\t\033[33mНе найден календарь {err} для правила "{item["name"]}".\n\tЗагрузите списки URL и повторите попытку.\033[0m')
                 item['time_restrictions'] = []
 
     def get_apps(self, array_apps):
         """Определяем имя приложения по ID при экспорте и ID приложения по имени при импорте"""
         for app in array_apps:
             if app[0] == 'ro_group':
-                app[1] = self.l7_categories[app[1]] if app[1] != 0 else "All"
+                if app[1] == 0:
+                    app[1] = "All"
+                elif app[1] == "All":
+                    app[1] = 0
+                else:
+                    app[1] = self.l7_categories[app[1]]
             elif app[0] == 'group':
                 app[1] = self.list_applicationgroup[app[1]]
             elif app[0] == 'app':
@@ -3002,6 +3055,7 @@ def main():
                         utm.import_captive_portal_rules()
                         utm.import_byod_policy()
                         utm.import_scenarios()
+                        utm.import_firewall_rules()
                 except UtmError as err:
                     print(err)
                 except Exception as err:

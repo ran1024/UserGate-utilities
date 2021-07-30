@@ -931,6 +931,31 @@ class UtmXmlRpc:
             sys.exit(1)
         return len(result['items']), result['items']
 
+    def add_firewall_rule(self, rule):
+        """Добавить новое правило в МЭ"""
+        if rule['name'] in self.firewall_rules.keys():
+            return 1, f'\tПравило МЭ "{rule["name"]}" уже существует.'
+        try:
+            result = self._server.v1.firewall.rule.add(self._auth_token, rule)
+        except rpc.Fault as err:
+            if err.faultCode == 110:
+                return 2, f'\tПравило МЭ "{rule["name"]}" не добавлено — {err.faultString}.'
+            else:
+                return 2, f"\tОшибка utm.add_firewall_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+            self.firewall_rules[rule['name']] = result
+
+    def update_firewall_rule(self, rule):
+        """Обновить правило МЭ"""
+        try:
+            rule_id = self.firewall_rules[rule['name']]
+            result = self._server.v1.firewall.rule.update(self._auth_token, rule_id, rule)
+        except rpc.Fault as err:
+            return 1, f"\tОшибка utm.update_firewall_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
     def get_scenarios_rules(self):
         """Получить список сценариев"""
         try:
