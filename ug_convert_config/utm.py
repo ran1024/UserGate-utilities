@@ -518,17 +518,17 @@ class UtmXmlRpc:
         else:
             return 0, result     # Возвращает True
 
-    def get_idps_signatures_list(self):
-        """Получить список сигнатур IDPS"""
-        idps = {}
-        try:
-            result = self._server.v1.idps.signatures.list(self._auth_token, 0, 10000, {}, [])
-        except rpc.Fault as err:
-            print(f"Ошибка get_idps_signatures_list: [{err.faultCode}] — {err.faultString}")
-            sys.exit(1)
-        for item in result['items']:
-            idps[item['msg']] = item['id']
-        return 0, idps
+#    def get_idps_signatures_list(self):
+#        """Получить список сигнатур IDPS"""
+#        idps = {}
+#        try:
+#            result = self._server.v1.idps.signatures.list(self._auth_token, 0, 10000, {}, [])
+#        except rpc.Fault as err:
+#            print(f"Ошибка get_idps_signatures_list: [{err.faultCode}] — {err.faultString}")
+#            sys.exit(1)
+#        for item in result['items']:
+#            idps[item['msg']] = item['id']
+#        return 0, idps
 
     def get_netflow_profiles_list(self):
         """Получить список профилей netflow раздела Библиотеки"""
@@ -921,5 +921,48 @@ class UtmXmlRpc:
                 return 1, f"\tОшибка utm.get_ldap_group_name: [{err.faultCode}] — {err.faultString}\n\tПроверьте настройки LDAP-коннектора!"
         data = {x[0]: x[1] for x in [x.split('=') for x in result['name'].split(',')]}
         return 0, f"{result['guid'].split(':')[0]}\\{data['CN']}"
+
+    def get_firewall_rules(self):
+        """Получить список правил межсетевого экрана"""
+        try:
+            result = self._server.v1.firewall.rules.list(self._auth_token, 0, 1000, {})
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_firewall_rules: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result['items']), result['items']
+
+    def get_scenarios_rules(self):
+        """Получить список сценариев"""
+        try:
+            result = self._server.v1.scenarios.rules.list(self._auth_token, 0, 1000, {})
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_scenarios_rules: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result['items']), result['items']
+
+    def add_scenarios_rule(self, rule):
+        """Добавить новый сценарий в Сценарии"""
+        if rule['name'] in self.scenarios_rules.keys():
+            return 1, f'\tСценарий "{rule["name"]}" уже существует.'
+        try:
+            result = self._server.v1.scenarios.rule.add(self._auth_token, rule)
+        except rpc.Fault as err:
+            if err.faultCode == 110:
+                return 2, f'\tСценарий "{rule["name"]}" не добавлен — {err.faultString}.'
+            else:
+                return 2, f"\tОшибка utm.add_scenarios_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+            self.scenarios_rules[rule['name']] = result
+
+    def update_scenarios_rule(self, rule):
+        """Обновить сценарий"""
+        try:
+            rule_id = self.scenarios_rules[rule['name']]
+            result = self._server.v1.scenarios.rule.update(self._auth_token, rule_id, rule)
+        except rpc.Fault as err:
+            return 1, f"\tОшибка utm.update_scenarios_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
 
 class UtmError(Exception): pass
