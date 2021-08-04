@@ -41,6 +41,7 @@ class UTM(UtmXmlRpc):
         self.byod_rules = {}            # Список политик BYOD {name: id} для импорта
         self.scenarios_rules = {}       # Список сценариев {name: id} для импорта
         self.firewall_rules = {}        # Список правил МЭ {name: id} для импорта
+        self.nat_rules = {}             # Список правил NAT {name: id} для импорта
         self.default_url_category = {
             'Parental Control': 'URL_CATEGORY_GROUP_PARENTAL_CONTROL',
             'Productivity': 'URL_CATEGORY_GROUP_PRODUCTIVITY',
@@ -1973,6 +1974,85 @@ class UTM(UtmXmlRpc):
             else:
                 print(f'\tПравило МЭ "{item["name"]}" добавлено.')
 
+    def export_nat_rules(self):
+        """Выгрузить список правил NAT"""
+        print('Выгружается список "NAT и маршрутизация" раздела "Политики сети":')
+        if not os.path.isdir('data/network_policies'):
+            os.makedirs('data/network_policies')
+
+        _, data = self.get_scenarios_rules()
+        scenarios = {x['id']: x['name'] for x in data}
+
+        _, data = self.get_traffic_rules()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('cc', None)
+            item.pop('guid', None)
+            item.pop('position_layer', None),
+            if item['scenario_rule_id']:
+                item['scenario_rule_id'] = scenarios[item['scenario_rule_id']]
+            if self.version.startswith('6'):
+                self.get_names_users_and_groups(item)
+            self.set_src_zone_and_ips(item)
+            self.set_dst_zone_and_ips(item)
+            item['service'] = [self.services[x] for x in item['service']]
+
+        with open("data/network_policies/config_nat_rules.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "NAT и маршрутизация" выгружен в файл "data/network_policies/config_nat_rules.json".')
+
+    def import_nat_rules(self):
+        """Импортировать список правил NAT"""
+        print('Импорт списка "NAT и маршрутизация" раздела "Политики сети":')
+        try:
+            with open("data/network_policies/config_nat_rules.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "NAT и маршрутизация" не импортирован!\n\tНе найден файл "data/network_policies/config_nat_rules.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print('\tНет правил в списке "NAT и маршрутизация" для импорта.')
+            return
+
+        total, scenarios = self.get_scenarios_rules()
+        self.scenarios_rules = {x['name']: x['id'] for x in scenarios if total}
+        total, list_nat = self.get_traffic_rules()
+        self.nat_rules = {x['name']: x['id'] for x in list_nat if total}
+
+        for item in data:
+            if item['scenario_rule_id']:
+                try:
+                    item['scenario_rule_id'] = self.scenarios_rules[item['scenario_rule_id']]
+                except KeyError as err:
+                    print(f'\t\033[33mНе найден сценарий {err} для правила "{item["name"]}".\n\tЗагрузите сценарии и повторите попытку.\033[0m')
+                    item['scenario_rule_id'] = False
+            if self.version.startswith('6'):
+                self.get_guids_users_and_groups(item)
+            self.set_src_zone_and_ips(item)
+            self.set_dst_zone_and_ips(item)
+            try:
+                item['service'] = [self.services[x] for x in item['service']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден сервис {err} для правила "{item["name"]}".\n\tЗагрузите сервисы и повторите попытку.\033[0m')
+                item['service'] = []
+            if item['action'] == 'route':
+                print(f'\t\033[33mПроверьте шлюз для правила ПБР "{item["name"]}".\n\tВ случае отсутствия, установите вручную.\033[0m')
+
+            err, result = self.add_traffic_rule(item)
+            if err == 1:
+                print(result, end= ' - ')
+                err1, result1 = self.update_traffic_rule(item)
+                if err1 != 0:
+                    print("\n", f"\033[31m{result1}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            elif err == 2:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                print(f'\tПравило "{item["name"]}" добавлено.')
+
     def export_scenarios(self):
         """Выгрузить список сценариев"""
         print('Выгружается список "Сценарии" раздела "Политики безопасности":')
@@ -2360,40 +2440,52 @@ class UTM(UtmXmlRpc):
 
 ################################## Служебные функции ###################################
     def set_src_zone_and_ips(self, item):
-        if item['src_zones']:
+        if 'src_zones' in item.keys():
+            zone_name = 'src_zones'
+            ip_name = 'src_ips'
+        else:
+            zone_name = 'zone_in'
+            ip_name = 'source_ip'
+        if item[zone_name]:
             try:
-                item['src_zones'] = [self.zones[x] for x in item['src_zones']]
+                item[zone_name] = [self.zones[x] for x in item[zone_name]]
             except KeyError as err:
                 print(f'\t\033[33mИсходная зона {err} для правила "{item["name"]}" не найдена.\n\tЗагрузите список зон и повторите попытку.\033[0m')
-                item['src_zones'] = []
-        if item['src_ips']:
+                item[zone_name] = []
+        if item[ip_name]:
             try:
-                for x in item['src_ips']:
+                for x in item[ip_name]:
                     if x[0] == 'list_id':
                         x[1] = self.list_IP[x[1]]
                     elif x[0] == 'urllist_id':
                         x[1] = self.list_url[x[1]]
             except KeyError as err:
                 print(f'\t\033[33mНе найден адрес источника {err} для правила "{item["name"]}".\n\tЗагрузите списки IP-адресов и URL и повторите попытку.\033[0m')
-                item['src_ips'] = []
+                item[ip_name] = []
 
     def set_dst_zone_and_ips(self, item):
-        if item['dst_zones']:
+        if 'dst_zones' in item.keys():
+            zone_name = 'dst_zones'
+            ip_name = 'dst_ips'
+        else:
+            zone_name = 'zone_out'
+            ip_name = 'dest_ip'
+        if item[zone_name]:
             try:
-                item['dst_zones'] = [self.zones[x] for x in item['dst_zones']]
+                item[zone_name] = [self.zones[x] for x in item[zone_name]]
             except KeyError as err:
                 print(f'\t\033[33mЗона назначения {err} для правила "{item["name"]}" не найдена.\n\tЗагрузите список зон и повторите попытку.\033[0m')
-                item['dst_zones'] = []
-        if item['dst_ips']:
+                item[zone_name] = []
+        if item[ip_name]:
             try:
-                for x in item['dst_ips']:
+                for x in item[ip_name]:
                     if x[0] == 'list_id':
                         x[1] = self.list_IP[x[1]]
                     elif x[0] == 'urllist_id':
                         x[1] = self.list_url[x[1]]
             except KeyError as err:
                 print(f'\t\033[33mНе найден адрес назначения {err} для правила "{item["name"]}".\n\tЗагрузите списки IP-адресов и URL и повторите попытку.\033[0m')
-                item['dst_ips'] = []
+                item[ip_name] = []
 
     def set_urls_and_categories(self, item):
         if item['urls']:
@@ -2469,7 +2561,7 @@ class UTM(UtmXmlRpc):
         Получить GUID-ы групп и пользователей по их именам.
         Заменяет имена локальных и доменных пользователей и групп на GUID-ы.
         """
-        if item['users']:
+        if 'users' in item.keys() and item['users']:
             users = []
             for x in item['users']:
                 if x[0] == 'user' and x[1]:
@@ -2502,6 +2594,8 @@ class UTM(UtmXmlRpc):
                         x[1] = self.list_groups[x[1]]
                         users.append(x)
             item['users'] = users
+        else:
+            item['users'] = []
 
 def menu1():
     print("\033c")
@@ -2610,6 +2704,7 @@ def menu3(utm, mode, section):
             print("\033[33m0   - Выход.\033[0m")
         elif section == 5:
             print("1   - Экспортировать правила межсетевого экрана.")
+            print("2   - Экспортировать правила NAT.")
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -2676,6 +2771,7 @@ def menu3(utm, mode, section):
         elif section == 5:
             print("1   - Импортировать Сценарии.")
             print("2   - Импортировать правила межсетевого экрана.")
+            print("3   - Импортировать правила NAT.")
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -2839,13 +2935,17 @@ def main():
 
                 elif command == 501:
                     utm.export_firewall_rules()
+                elif command == 502:
+                    utm.export_nat_rules()
                 elif command == 599:
                     utm.export_firewall_rules()
+                    utm.export_nat_rules()
 
                 elif command == 601:
                     utm.export_scenarios()
                 elif command == 699:
                     utm.export_scenarios()
+
                 elif command == 9999:
                     utm.export_morphology_lists()
                     utm.export_services_list()
@@ -2880,6 +2980,7 @@ def main():
                     utm.export_captive_portal_rules()
                     utm.export_byod_policy()
                     utm.export_firewall_rules()
+                    utm.export_nat_rules()
                     utm.export_scenarios()
             except UtmError as err:
                 print(err)
@@ -3010,9 +3111,12 @@ def main():
                         utm.import_scenarios()
                     elif command == 502:
                         utm.import_firewall_rules()
+                    elif command == 503:
+                        utm.import_nat_rules()
                     elif command == 599:
                         utm.import_scenarios()
                         utm.import_firewall_rules()
+                        utm.import_nat_rules()
 
 #                    elif command == 601:
 #                        utm.import_scenarios()
@@ -3056,6 +3160,7 @@ def main():
                         utm.import_byod_policy()
                         utm.import_scenarios()
                         utm.import_firewall_rules()
+                        utm.import_nat_rules()
                 except UtmError as err:
                     print(err)
                 except Exception as err:

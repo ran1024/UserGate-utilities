@@ -956,6 +956,37 @@ class UtmXmlRpc:
         else:
             return 0, result     # Возвращает True
 
+    def get_traffic_rules(self):
+        """Получить список правил NAT"""
+        try:
+            result = self._server.v1.traffic.rules.list(self._auth_token, 0, 1000, {})
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_traffic_rules: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result['items']), result['items']
+
+    def add_traffic_rule(self, rule):
+        """Добавить новое правило NAT"""
+        if rule['name'] in self.nat_rules.keys():
+            return 1, f'\tПравило "{rule["name"]}" уже существует.'
+        try:
+            result = self._server.v1.traffic.rule.add(self._auth_token, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_traffic_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+            self.nat_rules[rule['name']] = result
+
+    def update_traffic_rule(self, rule):
+        """Обновить правило NAT"""
+        try:
+            rule_id = self.nat_rules[rule['name']]
+            result = self._server.v1.traffic.rule.update(self._auth_token, rule_id, rule)
+        except rpc.Fault as err:
+            return 1, f"\tОшибка utm.update_traffic_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
     def get_scenarios_rules(self):
         """Получить список сценариев"""
         try:
