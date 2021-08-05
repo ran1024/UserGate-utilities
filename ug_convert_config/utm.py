@@ -987,6 +987,86 @@ class UtmXmlRpc:
         else:
             return 0, result     # Возвращает True
 
+    def get_loadbalancing_rules(self):
+        """Получить список правил балансировки нагрузки"""
+        try:
+            tcpudp = self._server.v1.virtualserver.rules.list(self._auth_token)
+            icap = self._server.v1.icap.loadbalancing.rules.list(self._auth_token)
+            reverse = self._server.v1.reverseproxy.loadbalancing.rules.list(self._auth_token)
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_loadbalancing_rules: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return tcpudp, icap, reverse
+
+    def add_virtualserver_rule(self, rule):
+        """Добавить новое правило балансировки нагрузки TCP/UDP"""
+        if rule['name'] in self.tcpudp_rules.keys():
+            return 1, f'\tПравило "{rule["name"]}" уже существует.'
+        try:
+            result = self._server.v1.virtualserver.rule.add(self._auth_token, rule)
+        except rpc.Fault as err:
+            if err.faultCode == 409:
+                return 1, f'\tПравило "{rule["name"]}" уже существует.'
+            else:
+                return 2, f"\tОшибка utm.add_virtualserver_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+            self.tcpudp_rules[rule['name']] = result
+
+    def update_virtualserver_rule(self, rule):
+        """Обновить правило балансировки нагрузки TCP/UDP"""
+        try:
+            rule_id = self.tcpudp_rules[rule['name']]
+            result = self._server.v1.virtualserver.rule.update(self._auth_token, rule_id, rule)
+        except rpc.Fault as err:
+            return 1, f"\tОшибка utm.update_virtualserver_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
+    def add_icap_loadbalancing_rule(self, rule):
+        """Добавить новое правило балансировки нагрузки ICAP"""
+        if rule['name'] in self.icap_rules.keys():
+            return 1, f'\tПравило "{rule["name"]}" уже существует.'
+        try:
+            result = self._server.v1.icap.loadbalancing.rule.add(self._auth_token, rule)
+        except rpc.Fault as err:
+                return 2, f"\tОшибка utm.add_icap_loadbalancing_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+            self.icap_rules[rule['name']] = result
+
+    def update_icap_loadbalancing_rule(self, rule):
+        """Обновить правило балансировки нагрузки ICAP"""
+        try:
+            rule_id = self.icap_rules[rule['name']]
+            result = self._server.v1.icap.loadbalancing.rule.update(self._auth_token, rule_id, rule)
+        except rpc.Fault as err:
+            return 1, f"\tОшибка utm.update_icap_loadbalancing_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
+    def add_reverse_loadbalancing_rule(self, rule):
+        """Добавить новое правило балансировки нагрузки reverse-proxy"""
+        if rule['name'] in self.reverse_rules.keys():
+            return 1, f'\tПравило "{rule["name"]}" уже существует.'
+        try:
+            result = self._server.v1.reverseproxy.loadbalancing.rule.add(self._auth_token, rule)
+        except rpc.Fault as err:
+                return 2, f"\tОшибка utm.add_reverse_loadbalancing_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+            self.reverse_rules[rule['name']] = result
+
+    def update_reverse_loadbalancing_rule(self, rule):
+        """Обновить правило балансировки нагрузки reverse-proxy"""
+        try:
+            rule_id = self.reverse_rules[rule['name']]
+            result = self._server.v1.reverseproxy.loadbalancing.rule.update(self._auth_token, rule_id, rule)
+        except rpc.Fault as err:
+            return 1, f"\tОшибка utm.update_reverse_loadbalancing_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
     def get_scenarios_rules(self):
         """Получить список сценариев"""
         try:
@@ -1020,5 +1100,23 @@ class UtmXmlRpc:
             return 1, f"\tОшибка utm.update_scenarios_rule: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result     # Возвращает True
+
+    def get_icap_servers(self):
+        """Получить список серверов ICAP"""
+        try:
+            result = self._server.v1.icap.profiles.list(self._auth_token)
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_icap_servers: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result), result
+
+    def get_reverseproxy_servers(self):
+        """Получить список серверов reverse-прокси"""
+        try:
+            result = self._server.v1.reverseproxy.profiles.list(self._auth_token)
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_reverseproxy_servers: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result), result
 
 class UtmError(Exception): pass

@@ -42,6 +42,11 @@ class UTM(UtmXmlRpc):
         self.scenarios_rules = {}       # Список сценариев {name: id} для импорта
         self.firewall_rules = {}        # Список правил МЭ {name: id} для импорта
         self.nat_rules = {}             # Список правил NAT {name: id} для импорта
+        self.icap_servers = {}          # Список серверов icap {id: name} для экспорта и {name: id} для импорта
+        self.reverse_servers = {}       # Список серверов reverse-proxy {id: name} для экспорта и {name: id} для импорта
+        self.tcpudp_rules = {}
+        self.icap_rules = {}
+        self.reverse_rules = {}
         self.default_url_category = {
             'Parental Control': 'URL_CATEGORY_GROUP_PARENTAL_CONTROL',
             'Productivity': 'URL_CATEGORY_GROUP_PRODUCTIVITY',
@@ -2053,6 +2058,130 @@ class UTM(UtmXmlRpc):
             else:
                 print(f'\tПравило "{item["name"]}" добавлено.')
 
+    def export_loadbalancing_rules(self):
+        """Выгрузить список правил балансировки нагрузки"""
+        print('Выгружается список "Балансировка нагрузки" раздела "Политики сети":')
+        if not os.path.isdir('data/network_policies'):
+            os.makedirs('data/network_policies')
+
+        total, data = self.get_icap_servers()
+        self.icap_servers = {x['id']: x['name'] for x in data if total}
+        total, data = self.get_reverseproxy_servers()
+        self.reverse_servers = {x['id']: x['name'] for x in data if total}
+
+        tcpudp, icap, reverse = self.get_loadbalancing_rules()
+
+        for item in tcpudp:
+            item.pop('id', None)
+            item.pop('guid', None)
+        for item in icap:
+            item.pop('id', None)
+            item['profiles'] = [self.icap_servers[x] for x in item['profiles']]
+        for item in reverse:
+            item.pop('id', None)
+            item['profiles'] = [self.reverse_servers[x] for x in item['profiles']]
+
+        with open("data/network_policies/config_loadbalancing_tcpudp.json", "w") as fd:
+            json.dump(tcpudp, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок балансировщиков TCP/UDP выгружен в файл "data/network_policies/config_loadbalancing_tcpudp.json".')
+
+        with open("data/network_policies/config_loadbalancing_icap.json", "w") as fd:
+            json.dump(icap, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок балансировщиков ICAP выгружен в файл "data/network_policies/config_loadbalancing_icap.json".')
+
+        with open("data/network_policies/config_loadbalancing_reverse.json", "w") as fd:
+            json.dump(reverse, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок балансировщиков reverse-прокси выгружен в файл "data/network_policies/config_loadbalancing_reverse.json".')
+
+    def import_loadbalancing_rules(self):
+        """Импортировать список правил балансировки нагрузки"""
+        print('Импорт списка "Балансировка нагрузки" раздела "Политики сети":')
+        tcpudp, icap, reverse = self.get_loadbalancing_rules()
+        self.tcpudp_rules = {x['name']: x['id'] for x in tcpudp}
+        self.icap_rules = {x['name']: x['id'] for x in icap}
+        self.reverse_rules = {x['name']: x['id'] for x in reverse}
+
+        try:
+            with open("data/network_policies/config_loadbalancing_tcpudp.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок балансировщиков TCP/UDP не импортирован!\n\tНе найден файл "data/network_policies/config_loadbalancing_tcpudp.json" с сохранённой конфигурацией!\033[0;0m')
+        else:
+            if data:
+                for item in data:
+                    err, result = self.add_virtualserver_rule(item)
+                    if err == 1:
+                        print(result, end= ' - ')
+                        err1, result1 = self.update_virtualserver_rule(item)
+                        if err1 != 0:
+                            print("\n", f"\033[31m{result1}\033[0m")
+                        else:
+                            print("\033[32mUpdated!\033[0;0m")
+                    elif err == 2:
+                        print(f"\033[31m{result}\033[0m")
+                    else:
+                        print(f'\tБалансировщик TCP/UDP "{item["name"]}" добавлен.')
+            else:
+                print('\tНет правил в списке балансировщиков TCP/UDP для импорта.')
+
+        try:
+            with open("data/network_policies/config_loadbalancing_icap.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок балансировщиков ICAP не импортирован!\n\tНе найден файл "data/network_policies/config_loadbalancing_icap.json" с сохранённой конфигурацией!\033[0;0m')
+        else:
+            total, icap = self.get_icap_servers()
+            self.icap_servers = {x['name']: x['id'] for x in icap if total}
+
+            if data:
+                for item in data:
+                    item['profiles'] = [self.icap_servers[x] for x in item['profiles']]
+                    err, result = self.add_icap_loadbalancing_rule(item)
+                    if err == 1:
+                        print(result, end= ' - ')
+                        err1, result1 = self.update_icap_loadbalancing_rule(item)
+                        if err1 != 0:
+                            print("\n", f"\033[31m{result1}\033[0m")
+                        else:
+                            print("\033[32mUpdated!\033[0;0m")
+                    elif err == 2:
+                        print(f"\033[31m{result}\033[0m")
+                    else:
+                        print(f'\tБалансировщик ICAP "{item["name"]}" добавлен.')
+            else:
+                print('\tНет правил в списке балансировщиков ICAP для импорта.')
+
+        try:
+            with open("data/network_policies/config_loadbalancing_reverse.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок балансировщиков reverse-proxy не импортирован!\n\tНе найден файл "data/network_policies/config_loadbalancing_reverse.json" с сохранённой конфигурацией!\033[0;0m')
+        else:
+            total, reverse = self.get_reverseproxy_servers()
+            self.reverse_servers = {x['name']: x['id'] for x in reverse if total}
+
+            if data:
+                for item in data:
+                    try:
+                        item['profiles'] = [self.reverse_servers[x] for x in item['profiles']]
+                    except KeyError as err:
+                        print(f'\t\033[33mНе найден сервер reverse-proxy {err} для правила "{item["name"]}".\n\tЗагрузите серверы reverse-proxy и повторите попытку.\033[0m')
+                        item['profiles'] = []
+                    err, result = self.add_reverse_loadbalancing_rule(item)
+                    if err == 1:
+                        print(result, end= ' - ')
+                        err1, result1 = self.update_reverse_loadbalancing_rule(item)
+                        if err1 != 0:
+                            print("\n", f"\033[31m{result1}\033[0m")
+                        else:
+                            print("\033[32mUpdated!\033[0;0m")
+                    elif err == 2:
+                        print(f"\033[31m{result}\033[0m")
+                    else:
+                        print(f'\tБалансировщик reverse-proxy "{item["name"]}" добавлен.')
+            else:
+                print('\tНет правил в списке балансировщиков reverse-proxy для импорта.')
+
     def export_scenarios(self):
         """Выгрузить список сценариев"""
         print('Выгружается список "Сценарии" раздела "Политики безопасности":')
@@ -2705,6 +2834,7 @@ def menu3(utm, mode, section):
         elif section == 5:
             print("1   - Экспортировать правила межсетевого экрана.")
             print("2   - Экспортировать правила NAT.")
+            print("3   - Экспортировать правила балансировки нагрузки.")
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -2772,6 +2902,7 @@ def menu3(utm, mode, section):
             print("1   - Импортировать Сценарии.")
             print("2   - Импортировать правила межсетевого экрана.")
             print("3   - Импортировать правила NAT.")
+            print("4   - Импортировать правила балансировки нагрузки.")
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -2937,9 +3068,12 @@ def main():
                     utm.export_firewall_rules()
                 elif command == 502:
                     utm.export_nat_rules()
+                elif command == 503:
+                    utm.export_loadbalancing_rules()
                 elif command == 599:
                     utm.export_firewall_rules()
                     utm.export_nat_rules()
+                    utm.export_loadbalancing_rules()
 
                 elif command == 601:
                     utm.export_scenarios()
@@ -2982,6 +3116,7 @@ def main():
                     utm.export_firewall_rules()
                     utm.export_nat_rules()
                     utm.export_scenarios()
+                    utm.export_loadbalancing_rules()
             except UtmError as err:
                 print(err)
             except Exception as err:
@@ -3113,10 +3248,13 @@ def main():
                         utm.import_firewall_rules()
                     elif command == 503:
                         utm.import_nat_rules()
+                    elif command == 504:
+                        utm.import_loadbalancing_rules()
                     elif command == 599:
                         utm.import_scenarios()
                         utm.import_firewall_rules()
                         utm.import_nat_rules()
+                        utm.import_loadbalancing_rules()
 
 #                    elif command == 601:
 #                        utm.import_scenarios()
@@ -3161,6 +3299,7 @@ def main():
                         utm.import_scenarios()
                         utm.import_firewall_rules()
                         utm.import_nat_rules()
+                        utm.import_loadbalancing_rules()
                 except UtmError as err:
                     print(err)
                 except Exception as err:
