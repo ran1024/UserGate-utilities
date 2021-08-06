@@ -824,8 +824,8 @@ class UtmXmlRpc:
             else:
                 return 2, f"\tОшибка utm.add_captive_portal_rules: [{err.faultCode}] — {err.faultString}"
         else:
-            return 0, result     # Возвращает ID добавленного правила
             self.captive_portal_rules[rule['name']] = result
+            return 0, result     # Возвращает ID добавленного правила
 
     def update_captive_portal_rule(self, rule):
         """Обновить правило Captive-портала"""
@@ -858,8 +858,8 @@ class UtmXmlRpc:
             else:
                 return 2, f"\tОшибка utm.add_byod_policy: [{err.faultCode}] — {err.faultString}"
         else:
-            return 0, result     # Возвращает ID добавленного правила
             self.byod_rules[rule['name']] = result
+            return 0, result     # Возвращает ID добавленного правила
 
     def update_byod_policy(self, rule):
         """Обновить правило Captive-портала"""
@@ -943,8 +943,8 @@ class UtmXmlRpc:
             else:
                 return 2, f"\tОшибка utm.add_firewall_rule: [{err.faultCode}] — {err.faultString}"
         else:
-            return 0, result     # Возвращает ID добавленного правила
             self.firewall_rules[rule['name']] = result
+            return 0, result     # Возвращает ID добавленного правила
 
     def update_firewall_rule(self, rule):
         """Обновить правило МЭ"""
@@ -974,8 +974,8 @@ class UtmXmlRpc:
         except rpc.Fault as err:
             return 2, f"\tОшибка utm.add_traffic_rule: [{err.faultCode}] — {err.faultString}"
         else:
-            return 0, result     # Возвращает ID добавленного правила
             self.nat_rules[rule['name']] = result
+            return 0, result     # Возвращает ID добавленного правила
 
     def update_traffic_rule(self, rule):
         """Обновить правило NAT"""
@@ -1010,8 +1010,8 @@ class UtmXmlRpc:
             else:
                 return 2, f"\tОшибка utm.add_virtualserver_rule: [{err.faultCode}] — {err.faultString}"
         else:
-            return 0, result     # Возвращает ID добавленного правила
             self.tcpudp_rules[rule['name']] = result
+            return 0, result     # Возвращает ID добавленного правила
 
     def update_virtualserver_rule(self, rule):
         """Обновить правило балансировки нагрузки TCP/UDP"""
@@ -1032,8 +1032,8 @@ class UtmXmlRpc:
         except rpc.Fault as err:
                 return 2, f"\tОшибка utm.add_icap_loadbalancing_rule: [{err.faultCode}] — {err.faultString}"
         else:
-            return 0, result     # Возвращает ID добавленного правила
             self.icap_rules[rule['name']] = result
+            return 0, result     # Возвращает ID добавленного правила
 
     def update_icap_loadbalancing_rule(self, rule):
         """Обновить правило балансировки нагрузки ICAP"""
@@ -1054,8 +1054,8 @@ class UtmXmlRpc:
         except rpc.Fault as err:
                 return 2, f"\tОшибка utm.add_reverse_loadbalancing_rule: [{err.faultCode}] — {err.faultString}"
         else:
-            return 0, result     # Возвращает ID добавленного правила
             self.reverse_rules[rule['name']] = result
+            return 0, result     # Возвращает ID добавленного правила
 
     def update_reverse_loadbalancing_rule(self, rule):
         """Обновить правило балансировки нагрузки reverse-proxy"""
@@ -1088,8 +1088,8 @@ class UtmXmlRpc:
             else:
                 return 2, f"\tОшибка utm.add_scenarios_rule: [{err.faultCode}] — {err.faultString}"
         else:
-            return 0, result     # Возвращает ID добавленного правила
             self.scenarios_rules[rule['name']] = result
+            return 0, result     # Возвращает ID добавленного правила
 
     def update_scenarios_rule(self, rule):
         """Обновить сценарий"""
@@ -1109,6 +1109,65 @@ class UtmXmlRpc:
             print(f"\tОшибка utm.get_icap_servers: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
         return len(result), result
+
+    def add_icap_server(self, profile):
+        """Добавить новый ICAP сервер"""
+        if profile['name'] in self.icap_servers.keys():
+            return 1, f'\tICAP-сервер "{profile["name"]}" уже существует.'
+        try:
+            result = self._server.v1.icap.profile.add(self._auth_token, profile)
+        except rpc.Fault as err:
+            if err.faultCode == 110:
+                return 2, f'\tСервер "{profile["name"]}" не добавлен — {err.faultString}.'
+            else:
+                return 2, f"\tОшибка utm.add_icap_server: [{err.faultCode}] — {err.faultString}"
+        else:
+            self.icap_servers[profile['name']] = result
+            return 0, result     # Возвращает ID добавленного правила
+
+    def update_icap_server(self, profile):
+        """Обновить ICAP сервер"""
+        try:
+            profile_id = self.icap_servers[profile['name']]
+            result = self._server.v1.icap.profile.update(self._auth_token, profile_id, profile)
+        except rpc.Fault as err:
+            return 1, f"\tОшибка utm.update_icap_server: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
+    def get_icap_rules(self):
+        """Получить список правил ICAP"""
+        try:
+            if self.version.startswith('5'):
+                result = self._server.v1.icap.rules.list(self._auth_token, {})
+            else:
+                result = self._server.v1.icap.rules.list(self._auth_token, 0, 100, {})
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_icap_rules: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result), result if self.version.startswith('5') else result['items']
+
+    def add_icap_rule(self, icap_rules, rule):
+        """Добавить новое ICAP-правило"""
+        if rule['name'] in icap_rules.keys():
+            return 1, f'\tICAP-правило "{rule["name"]}" уже существует.'
+        try:
+            result = self._server.v1.icap.rule.add(self._auth_token, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_icap_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            icap_rules[rule['name']] = result
+            return 0, result     # Возвращает ID добавленного правила
+
+    def update_icap_rule(self, icap_rules, rule):
+        """Обновить ICAP-правило"""
+        try:
+            rule_id = icap_rules[rule['name']]
+            result = self._server.v1.icap.rule.update(self._auth_token, rule_id, rule)
+        except rpc.Fault as err:
+            return 1, f"\tОшибка utm.update_icap_rules: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
 
     def get_reverseproxy_servers(self):
         """Получить список серверов reverse-прокси"""

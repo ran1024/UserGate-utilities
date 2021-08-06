@@ -45,7 +45,7 @@ class UTM(UtmXmlRpc):
         self.icap_servers = {}          # Список серверов icap {id: name} для экспорта и {name: id} для импорта
         self.reverse_servers = {}       # Список серверов reverse-proxy {id: name} для экспорта и {name: id} для импорта
         self.tcpudp_rules = {}
-        self.icap_rules = {}
+        self.icap_loadbalancing = {}
         self.reverse_rules = {}
         self.default_url_category = {
             'Parental Control': 'URL_CATEGORY_GROUP_PARENTAL_CONTROL',
@@ -2058,6 +2058,52 @@ class UTM(UtmXmlRpc):
             else:
                 print(f'\tПравило "{item["name"]}" добавлено.')
 
+    def export_icap_servers(self):
+        """Выгрузить список серверов ICAP"""
+        print('Выгружается список "ICAP-серверы" раздела "Политики безопасности":')
+        if not os.path.isdir('data/security_policies'):
+            os.makedirs('data/security_policies')
+
+        _, data = self.get_icap_servers()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('cc', None)
+
+        with open("data/security_policies/config_icap_servers.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "ICAP-серверы" выгружен в файл "data/security_policies/config_icap_servers.json".')
+
+    def import_icap_servers(self):
+        """Импортировать список серверов ICAP"""
+        print('Импорт списка "ICAP-серверы" раздела "Политики безопасности":')
+        try:
+            with open("data/security_policies/config_icap_servers.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "ICAP-серверы" не импортирован!\n\tНе найден файл "data/security_policies/config_icap_servers.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if data:
+            total, icap = self.get_icap_servers()
+            self.icap_servers = {x['name']: x['id'] for x in icap if total}
+
+            for item in data:
+                err, result = self.add_icap_server(item)
+                if err == 1:
+                    print(result, end= ' - ')
+                    err1, result1 = self.update_icap_server(item)
+                    if err1 != 0:
+                        print("\n", f"\033[31m{result1}\033[0m")
+                    else:
+                        print("\033[32mUpdated!\033[0;0m")
+                elif err == 2:
+                    print(f"\033[31m{result}\033[0m")
+                else:
+                    print(f'\tICAP-сервер "{item["name"]}" добавлен.')
+        else:
+            print('\tНет записей в списке "ICAP-серверы" для импорта.')
+
     def export_loadbalancing_rules(self):
         """Выгрузить список правил балансировки нагрузки"""
         print('Выгружается список "Балансировка нагрузки" раздела "Политики сети":')
@@ -2098,7 +2144,7 @@ class UTM(UtmXmlRpc):
         print('Импорт списка "Балансировка нагрузки" раздела "Политики сети":')
         tcpudp, icap, reverse = self.get_loadbalancing_rules()
         self.tcpudp_rules = {x['name']: x['id'] for x in tcpudp}
-        self.icap_rules = {x['name']: x['id'] for x in icap}
+        self.icap_loadbalancing = {x['name']: x['id'] for x in icap}
         self.reverse_rules = {x['name']: x['id'] for x in reverse}
 
         try:
@@ -2135,7 +2181,11 @@ class UTM(UtmXmlRpc):
 
             if data:
                 for item in data:
-                    item['profiles'] = [self.icap_servers[x] for x in item['profiles']]
+                    try:
+                        item['profiles'] = [self.icap_servers[x] for x in item['profiles']]
+                    except KeyError as err:
+                        print(f'\t\033[33mНе найден сервер ICAP {err} для правила "{item["name"]}".\n\tИмпортируйте серверы ICAP и повторите попытку.\033[0m')
+                        item['profiles'] = []
                     err, result = self.add_icap_loadbalancing_rule(item)
                     if err == 1:
                         print(result, end= ' - ')
@@ -2259,6 +2309,99 @@ class UTM(UtmXmlRpc):
                 print(f"\033[31m{result}\033[0m")
             else:
                 print(f'\tСценарий "{item["name"]}" добавлен.')
+
+    def export_icap_rules(self):
+        """Выгрузить список правил ICAP"""
+        print('Выгружается список "ICAP-правила" раздела "Политики безопасности":')
+        if not os.path.isdir('data/security_policies'):
+            os.makedirs('data/security_policies')
+
+        total, icapservers = self.get_icap_servers()
+        self.icap_servers = {x['id']: x['name'] for x in icapservers if total}
+        _, icaprules, _ = self.get_loadbalancing_rules()
+        self.icap_loadbalancing = {x['id']: x['name'] for x in icaprules}
+
+        _, data = self.get_icap_rules()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('guid', None)
+            for server in item['servers']:
+                if server[0] == 'lbrule':
+                    try:
+                        server[1] = self.icap_loadbalancing[server[1]]
+                    except KeyError as err:
+                        print(f'\t\033[33mНе найден балансировщик серверов ICAP {err} для правила "{item["name"]}".\n\tИмпортируйте балансировщики ICAP и повторите попытку.\033[0m')
+                        item['servers'] = []
+                elif server[0] == 'profile':
+                    try:
+                        server[1] = self.icap_servers[server[1]]
+                    except KeyError as err:
+                        print(f'\t\033[33mНе найден сервер ICAP {err} для правила "{item["name"]}".\n\tИмпортируйте сервера ICAP и повторите попытку.\033[0m')
+                        item['servers'] = []
+            self.get_names_users_and_groups(item)
+            self.set_src_zone_and_ips(item)
+            self.set_dst_zone_and_ips(item)
+            self.set_urls_and_categories(item)
+            item['content_types'] = [self.list_mime[x] for x in item['content_types']]
+
+        with open("data/security_policies/config_icap_rules.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "ICAP-правила" выгружен в файл "data/security_policies/config_icap_rules.json".')
+
+    def import_icap_rules(self):
+        """Импортировать список правил ICAP"""
+        print('Импорт списка "ICAP-правила" раздела "Политики безопасности":')
+        try:
+            with open("data/security_policies/config_icap_rules.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "ICAP-правила" не импортирован!\n\tНе найден файл "data/security_policies/config_icap_rules.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет ICAP-правил для импорта.")
+            return
+
+        total, icapservers = self.get_icap_servers()
+        self.icap_servers = {x['name']: x['id'] for x in icapservers if total}
+        _, icap, _ = self.get_loadbalancing_rules()
+        self.icap_loadbalancing = {x['name']: x['id'] for x in icap}
+        total, icaprules = self.get_icap_rules()
+        icap_rules = {x['name']: x['id'] for x in icaprules if total}
+
+        for item in data:
+            for server in item['servers']:
+                if server[0] == 'lbrule':
+                    try:
+                        server[1] = self.icap_loadbalancing[server[1]]
+                    except KeyError as err:
+                        print(f'\t\033[33mНе найден балансировщик серверов ICAP {err} для правила "{item["name"]}".\n\tИмпортируйте балансировщики ICAP и повторите попытку.\033[0m')
+                        item['servers'] = []
+                elif server[0] == 'profile':
+                    try:
+                        server[1] = self.icap_servers[server[1]]
+                    except KeyError as err:
+                        print(f'\t\033[33mНе найден сервер ICAP {err} для правила "{item["name"]}".\n\tИмпортируйте сервера ICAP и повторите попытку.\033[0m')
+                        item['servers'] = []
+            self.get_guids_users_and_groups(item)
+            self.set_src_zone_and_ips(item)
+            self.set_dst_zone_and_ips(item)
+            self.set_urls_and_categories(item)
+            item['content_types'] = [self.list_mime[x] for x in item['content_types']]
+
+            err, result = self.add_icap_rule(icap_rules, item)
+            if err == 1:
+                print(result, end= ' - ')
+                err1, result1 = self.update_icap_rule(icap_rules, item)
+                if err1 != 0:
+                    print("\n", f"\033[31m{result1}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            elif err == 2:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                print(f'\tICAP-правило "{item["name"]}" добавлено.')
 
 ################### ZONES #####################################
     def export_zones_list(self):
@@ -2593,13 +2736,13 @@ class UTM(UtmXmlRpc):
                 item[ip_name] = []
 
     def set_dst_zone_and_ips(self, item):
-        if 'dst_zones' in item.keys():
+        if 'dst_ips' in item.keys():
             zone_name = 'dst_zones'
             ip_name = 'dst_ips'
         else:
             zone_name = 'zone_out'
             ip_name = 'dest_ip'
-        if item[zone_name]:
+        if zone_name in item.keys() and item[zone_name]:
             try:
                 item[zone_name] = [self.zones[x] for x in item[zone_name]]
             except KeyError as err:
@@ -2722,6 +2865,8 @@ class UTM(UtmXmlRpc):
                     else:
                         x[1] = self.list_groups[x[1]]
                         users.append(x)
+                elif x[0] == 'special' and x[1]:
+                    users.append(x)
             item['users'] = users
         else:
             item['users'] = []
@@ -2840,6 +2985,8 @@ def menu3(utm, mode, section):
             print("\033[33m0   - Выход.\033[0m")
         elif section == 6:
             print("1   - Экспортировать сценарии.")
+            print('9   - Экспортировать список "ICAP-серверы".')
+            print('10   - Экспортировать список "ICAP-правила".')
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -2902,8 +3049,16 @@ def menu3(utm, mode, section):
             print("1   - Импортировать Сценарии.")
             print("2   - Импортировать правила межсетевого экрана.")
             print("3   - Импортировать правила NAT.")
-            print("4   - Импортировать правила балансировки нагрузки.")
-            print('\033[36m99  - Экспортировать всё.\033[0m')
+            print('4   - Импортировать список "ICAP-серверы".')
+            print("6   - Импортировать правила балансировки нагрузки.")
+            print('\033[36m99  - Импортировать всё.\033[0m')
+            print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
+            print("\033[33m0   - Выход.\033[0m")
+        elif section == 6:
+#            print("1   - Экспортировать сценарии.")
+#            print('9   - Экспортировать список "ICAP-серверы".')
+            print('8   - Импортировать список "ICAP-правила".')
+            print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
 
@@ -3077,8 +3232,14 @@ def main():
 
                 elif command == 601:
                     utm.export_scenarios()
+                elif command == 609:
+                    utm.export_icap_servers()
+                elif command == 610:
+                    utm.export_icap_rules()
                 elif command == 699:
                     utm.export_scenarios()
+                    utm.export_icap_servers()
+                    utm.export_icap_rules()
 
                 elif command == 9999:
                     utm.export_morphology_lists()
@@ -3115,8 +3276,10 @@ def main():
                     utm.export_byod_policy()
                     utm.export_firewall_rules()
                     utm.export_nat_rules()
-                    utm.export_scenarios()
                     utm.export_loadbalancing_rules()
+                    utm.export_scenarios()
+                    utm.export_icap_servers()
+                    utm.export_icap_rules()
             except UtmError as err:
                 print(err)
             except Exception as err:
@@ -3249,17 +3412,21 @@ def main():
                     elif command == 503:
                         utm.import_nat_rules()
                     elif command == 504:
+                        utm.import_icap_servers()
+                    elif command == 506:
                         utm.import_loadbalancing_rules()
                     elif command == 599:
                         utm.import_scenarios()
                         utm.import_firewall_rules()
                         utm.import_nat_rules()
+                        utm.import_icap_servers()
                         utm.import_loadbalancing_rules()
 
-#                    elif command == 601:
-#                        utm.import_scenarios()
-#                    elif command == 699:
-#                        utm.import_scenarios()
+                    elif command == 608:
+                        utm.import_icap_rules()
+                    elif command == 699:
+                        utm.import_icap_rules()
+
                     elif command == 9999:
                         utm.import_morphology()
                         utm.import_services()
@@ -3299,7 +3466,9 @@ def main():
                         utm.import_scenarios()
                         utm.import_firewall_rules()
                         utm.import_nat_rules()
+                        utm.import_icap_servers()
                         utm.import_loadbalancing_rules()
+                        utm.import_icap_rules(self)
                 except UtmError as err:
                     print(err)
                 except Exception as err:
