@@ -39,7 +39,7 @@ class UTM(UtmXmlRpc):
         self.captive_profiles = {}      # Список captive-профилей {id: name} для экспорта и {name: id} для импорта
         self.captive_portal_rules = {}  # Список captive-профилей {name: id}
         self.byod_rules = {}            # Список политик BYOD {name: id} для импорта
-        self.scenarios_rules = {}       # Список сценариев {name: id} для импорта
+        self.scenarios_rules = {}       # Список сценариев {id: name} для экспорта и {name: id} для импорта
         self.firewall_rules = {}        # Список правил МЭ {name: id} для импорта
         self.nat_rules = {}             # Список правил NAT {name: id} для импорта
         self.icap_servers = {}          # Список серверов icap {id: name} для экспорта и {name: id} для импорта
@@ -122,6 +122,9 @@ class UTM(UtmXmlRpc):
 
         ldap, radius, tacacs, ntlm, saml = self.get_auth_servers()
         self.auth_servers = {x['id']: x['name'] for x in [*ldap, *radius, *tacacs, *ntlm, *saml]}
+
+        _, data = self.get_scenarios_rules()
+        self.scenarios_rules = {x['id']: x['name'] for x in data}
 
     def init_struct_for_import(self):
         """Заполнить служебные структуры данных"""
@@ -209,6 +212,9 @@ class UTM(UtmXmlRpc):
 
         ldap, radius, tacacs, ntlm, saml = self.get_auth_servers()
         self.auth_servers = {x['name']: x['id'] for x in [*ldap, *radius, *tacacs, *ntlm, *saml]}
+
+        total, data = self.get_scenarios_rules()
+        self.scenarios_rules = {x['name']: x['id'] for x in data if total}
 
     def init_struct(self):
         """Заполнить служебные структуры данных. Применяется при экспорте и импорте."""
@@ -1901,9 +1907,6 @@ class UTM(UtmXmlRpc):
         if not os.path.isdir('data/network_policies'):
             os.makedirs('data/network_policies')
 
-        _, data = self.get_scenarios_rules()
-        scenarios = {x['id']: x['name'] for x in data}
-
         _, data = self.get_firewall_rules()
 
         for item in data:
@@ -1913,7 +1916,7 @@ class UTM(UtmXmlRpc):
             item.pop('position_layer', None),
             item.pop('deleted_users', None)
             if item['scenario_rule_id']:
-                item['scenario_rule_id'] = scenarios[item['scenario_rule_id']]
+                item['scenario_rule_id'] = self.scenarios_rules[item['scenario_rule_id']]
             self.get_names_users_and_groups(item)
             self.set_src_zone_and_ips(item)
             self.set_dst_zone_and_ips(item)
@@ -1939,8 +1942,6 @@ class UTM(UtmXmlRpc):
             print("\tНет правил межсетевого экрана для импорта.")
             return
 
-        total, scenarios = self.get_scenarios_rules()
-        self.scenarios_rules = {x['name']: x['id'] for x in scenarios if total}
         total, firewall = self.get_firewall_rules()
         self.firewall_rules = {x['name']: x['id'] for x in firewall if total}
 
@@ -1985,9 +1986,6 @@ class UTM(UtmXmlRpc):
         if not os.path.isdir('data/network_policies'):
             os.makedirs('data/network_policies')
 
-        _, data = self.get_scenarios_rules()
-        scenarios = {x['id']: x['name'] for x in data}
-
         _, data = self.get_traffic_rules()
 
         for item in data:
@@ -1996,7 +1994,7 @@ class UTM(UtmXmlRpc):
             item.pop('guid', None)
             item.pop('position_layer', None),
             if item['scenario_rule_id']:
-                item['scenario_rule_id'] = scenarios[item['scenario_rule_id']]
+                item['scenario_rule_id'] = self.scenarios_rules[item['scenario_rule_id']]
             if self.version.startswith('6'):
                 self.get_names_users_and_groups(item)
             self.set_src_zone_and_ips(item)
@@ -2021,8 +2019,6 @@ class UTM(UtmXmlRpc):
             print('\tНет правил в списке "NAT и маршрутизация" для импорта.')
             return
 
-        total, scenarios = self.get_scenarios_rules()
-        self.scenarios_rules = {x['name']: x['id'] for x in scenarios if total}
         total, list_nat = self.get_traffic_rules()
         self.nat_rules = {x['name']: x['id'] for x in list_nat if total}
 
@@ -2073,6 +2069,7 @@ class UTM(UtmXmlRpc):
         with open("data/security_policies/config_icap_servers.json", "w") as fd:
             json.dump(data, fd, indent=4, ensure_ascii=False)
         print(f'\tСписок "ICAP-серверы" выгружен в файл "data/security_policies/config_icap_servers.json".')
+
 
     def import_icap_servers(self):
         """Импортировать список серверов ICAP"""
@@ -2232,6 +2229,94 @@ class UTM(UtmXmlRpc):
             else:
                 print('\tНет правил в списке балансировщиков reverse-proxy для импорта.')
 
+    def export_shaper_rules(self):
+        """Выгрузить список правил пропускной способности"""
+        print('Выгружается список "Пропускная способность" раздела "Политики сети":')
+        if not os.path.isdir('data/network_policies'):
+            os.makedirs('data/network_policies')
+
+        total, data = self.get_shaper_list()
+        self.shaper = {x['id']: x['name'] for x in data if total}
+
+        _, data = self.get_shaper_rules()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('rownumber', None)
+            item.pop('guid', None)
+            item.pop('position_layer', None)
+            item.pop('deleted_users', None)
+            if item['scenario_rule_id']:
+                item['scenario_rule_id'] = self.scenarios_rules[item['scenario_rule_id']]
+            self.get_names_users_and_groups(item)
+            self.set_src_zone_and_ips(item)
+            self.set_dst_zone_and_ips(item)
+            item['services'] = [self.services[x] for x in item['services']]
+            self.get_apps(item['apps'])
+            self.set_time_restrictions(item)
+            item['pool'] = self.shaper[item['pool']]
+
+        with open("data/network_policies/config_shaper_rules.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Пропускная способность" выгружен в файл "data/network_policies/config_shaper_rules.json".')
+
+    def import_shaper_rules(self):
+        """Импортировать список правил пропускной способности"""
+        print('Импорт списка "Пропускная способность" раздела "Политики сети":')
+        try:
+            with open("data/network_policies/config_shaper_rules.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Пропускная способность" не импортирован!\n\tНе найден файл "data/network_policies/config_shaper_rules.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print('\tНет правил в списке "Пропускная способность" для импорта.')
+            return
+
+        _, shaperrules = self.get_shaper_rules()
+        shaper_rules = {x['name']: x['id'] for x in shaperrules}
+
+        for item in data:
+            if item['scenario_rule_id']:
+                try:
+                    item['scenario_rule_id'] = self.scenarios_rules[item['scenario_rule_id']]
+                except KeyError as err:
+                    print(f'\t\033[33mНе найден сценарий {err} для правила "{item["name"]}".\n\tЗагрузите сценарии и повторите попытку.\033[0m')
+                    item['scenario_rule_id'] = False
+            self.get_guids_users_and_groups(item)
+            self.set_src_zone_and_ips(item)
+            self.set_dst_zone_and_ips(item)
+            try:
+                item['services'] = [self.services[x] for x in item['services']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден сервис {err} для правила "{item["name"]}".\n\tЗагрузите сервисы и повторите попытку.\033[0m')
+                item['service'] = []
+            try:
+                self.get_apps(item['apps'])
+            except KeyError as err:
+                print(f'\t\033[33mНе найдено приложение {err} для правила "{item["name"]}".\n\tЗагрузите приложения и повторите попытку.\033[0m')
+                item['apps'] = []
+            self.set_time_restrictions(item)
+            try:
+                item['pool'] = self.shaper[item['pool']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден полоса пропускания {err} для правила "{item["name"]}".\n\tЗагрузите полосы пропускания и повторите попытку.\033[0m')
+                item['pool'] = 1
+
+            err, result = self.add_shaper_rule(shaper_rules, item)
+            if err == 1:
+                print(result, end= ' - ')
+                err1, result1 = self.update_shaper_rule(shaper_rules[item['name']], item)
+                if err1 != 0:
+                    print("\n", f"\033[31m{result1}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            elif err == 2:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                print(f'\tПравило пропускной способности "{item["name"]}" добавлено.')
+
     def export_scenarios(self):
         """Выгрузить список сценариев"""
         print('Выгружается список "Сценарии" раздела "Политики безопасности":')
@@ -2272,9 +2357,6 @@ class UTM(UtmXmlRpc):
         if not data:
             print("\tНет сценариев для импорта.")
             return
-
-        total, scenarios = self.get_scenarios_rules()
-        self.scenarios_rules = {x['name']: x['id'] for x in scenarios if total}
 
         for item in data:
             for condition in item['conditions']:
@@ -2980,6 +3062,7 @@ def menu3(utm, mode, section):
             print("1   - Экспортировать правила межсетевого экрана.")
             print("2   - Экспортировать правила NAT.")
             print("3   - Экспортировать правила балансировки нагрузки.")
+            print("4   - Экспортировать правила пропускной способности.")
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -3051,12 +3134,11 @@ def menu3(utm, mode, section):
             print("3   - Импортировать правила NAT.")
             print('4   - Импортировать список "ICAP-серверы".')
             print("6   - Импортировать правила балансировки нагрузки.")
+            print("7   - Импортировать правила пропускной способности.")
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
         elif section == 6:
-#            print("1   - Экспортировать сценарии.")
-#            print('9   - Экспортировать список "ICAP-серверы".')
             print('8   - Импортировать список "ICAP-правила".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
@@ -3225,10 +3307,13 @@ def main():
                     utm.export_nat_rules()
                 elif command == 503:
                     utm.export_loadbalancing_rules()
+                elif command == 504:
+                    utm.export_shaper_rules()
                 elif command == 599:
                     utm.export_firewall_rules()
                     utm.export_nat_rules()
                     utm.export_loadbalancing_rules()
+                    utm.export_shaper_rules()
 
                 elif command == 601:
                     utm.export_scenarios()
@@ -3277,6 +3362,7 @@ def main():
                     utm.export_firewall_rules()
                     utm.export_nat_rules()
                     utm.export_loadbalancing_rules()
+                    utm.export_shaper_rules()
                     utm.export_scenarios()
                     utm.export_icap_servers()
                     utm.export_icap_rules()
@@ -3415,12 +3501,15 @@ def main():
                         utm.import_icap_servers()
                     elif command == 506:
                         utm.import_loadbalancing_rules()
+                    elif command == 507:
+                        utm.import_shaper_rules()
                     elif command == 599:
                         utm.import_scenarios()
                         utm.import_firewall_rules()
                         utm.import_nat_rules()
                         utm.import_icap_servers()
                         utm.import_loadbalancing_rules()
+                        utm.import_shaper_rules()
 
                     elif command == 608:
                         utm.import_icap_rules()
@@ -3468,7 +3557,8 @@ def main():
                         utm.import_nat_rules()
                         utm.import_icap_servers()
                         utm.import_loadbalancing_rules()
-                        utm.import_icap_rules(self)
+                        utm.import_shaper_rules()
+                        utm.import_icap_rules()
                 except UtmError as err:
                     print(err)
                 except Exception as err:
