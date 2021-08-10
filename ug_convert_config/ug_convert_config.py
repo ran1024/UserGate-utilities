@@ -2317,6 +2317,131 @@ class UTM(UtmXmlRpc):
             else:
                 print(f'\tПравило пропускной способности "{item["name"]}" добавлено.')
 
+    def export_content_rules(self):
+        """Выгрузить список правил фильтрации контента"""
+        print('Выгружается список "Фильтрация контента" раздела "Политики безопасности":')
+        if not os.path.isdir('data/security_policies'):
+            os.makedirs('data/security_policies')
+
+        result = self._server.v2.nlists.list(self._auth_token, 'morphology', 0, 1000, {})
+        self.list_morph = {x['id']: x['name'] for x in result['items'] if result['count']}
+        result = self._server.v2.nlists.list(self._auth_token, 'useragent', 0, 1000, {})
+        self.list_useragent = {x['id']: x['name'] for x in result['items'] if result['count']}
+
+        _, data = self.get_content_rules()
+        data.pop()    # удаляем последнее правило (защищённое).
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('rownumber', None)
+            item.pop('guid', None)
+            item.pop('position_layer', None)
+            item.pop('deleted_users', None)
+            item['blockpage_template_id'] = self.list_templates.get(item['blockpage_template_id'], -1)
+            if item['scenario_rule_id']:
+                item['scenario_rule_id'] = self.scenarios_rules[item['scenario_rule_id']]
+            self.get_names_users_and_groups(item)
+            self.set_src_zone_and_ips(item)
+            self.set_dst_zone_and_ips(item)
+            self.set_time_restrictions(item)
+            self.set_urls_and_categories(item)
+            item['morph_categories'] = [self.list_morph[x] for x in item['morph_categories']]
+            item['referers'] = [self.list_url[x] for x in item['referers']]
+            for x in item['user_agents']:
+                x[1] = self.list_useragent[x[1]] if x[0] == 'list_id' else x[1]
+            item['content_types'] = [self.list_mime[x] for x in item['content_types']]
+            if 'referer_categories' in item.keys():
+                try:
+                    for x in item['referer_categories']:
+                        if x[0] == 'list_id':
+                            x[1] = self.list_urlcategorygroup[x[1]]
+                        elif x[0] == 'category_id':
+                            x[1] = self._categories[x[1]]
+                except KeyError as err:
+                    print(f'\t\033[33mНе найдена группа URL-категорий {err} для правила "{item["name"]}".\n\tЗагрузите ктегории URL и повторите попытку.\033[0m')
+                    item['referer_categories'] = []
+
+        with open("data/security_policies/config_content_rules.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Пропускная способность" выгружен в файл "data/security_policies/config_content_rules.json".')
+
+    def import_content_rules(self):
+        """Импортировать список правил фильтрации контента"""
+        print('Импорт списка "Фильтрация контента" раздела "Политики безопасности":')
+        try:
+            with open("data/security_policies/config_content_rules.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Фильтрация контента" не импортирован!\n\tНе найден файл "data/security_policies/config_content_rules.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет правил фильтрации контента для импорта.")
+            return
+
+        _, rules = self.get_content_rules()
+        content_rules = {x['name']: x['id'] for x in rules}
+
+        for item in data:
+            item['blockpage_template_id'] = self.list_templates.get(item['blockpage_template_id'], -1)
+            if item['scenario_rule_id']:
+                try:
+                    item['scenario_rule_id'] = self.scenarios_rules[item['scenario_rule_id']]
+                except KeyError as err:
+                    print(f'\t\033[33mНе найден сценарий {err} для правила "{item["name"]}".\n\tЗагрузите сценарии и повторите попытку.\033[0m')
+                    item['scenario_rule_id'] = False
+            self.get_guids_users_and_groups(item)
+            self.set_src_zone_and_ips(item)
+            self.set_dst_zone_and_ips(item)
+            self.set_time_restrictions(item)
+            self.set_urls_and_categories(item)
+            try:
+                item['morph_categories'] = [self.list_morph[x] for x in item['morph_categories']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден список морфрлогии {err} для правила "{item["name"]}".\n\tЗагрузите списки морфологии и повторите попытку.\033[0m')
+                item['morph_categories'] = []
+            try:
+                item['referers'] = [self.list_url[x] for x in item['referers']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден список URL {err} для правила "{item["name"]}".\n\tЗагрузите списки URL и повторите попытку.\033[0m')
+                item['referers'] = []
+            try:
+                for x in item['user_agents']:
+                    x[1] = self.list_useragent[x[1]] if x[0] == 'list_id' else x[1]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден useragent {err} для правила "{item["name"]}".\n\tЗагрузите список Useragent браузеров и повторите попытку.\033[0m')
+                item['user_agents'] = []
+            try:
+                item['content_types'] = [self.list_mime[x] for x in item['content_types']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден тип контента {err} для правила "{item["name"]}".\n\tЗагрузите список типов контента и повторите попытку.\033[0m')
+                item['content_types'] = []
+            if 'referer_categories' in item.keys():
+                try:
+                    for x in item['referer_categories']:
+                        if x[0] == 'list_id':
+                            x[1] = self.list_urlcategorygroup[x[1]]
+                        elif x[0] == 'category_id':
+                            x[1] = self._categories[x[1]]
+                except KeyError as err:
+                    print(f'\t\033[33mНе найдена группа URL-категорий {err} для правила "{item["name"]}".\n\tЗагрузите ктегории URL и повторите попытку.\033[0m')
+                    item['referer_categories'] = []
+
+            if item['name'] in content_rules:
+                print(f'\tПравило "{item["name"]}" уже существует', end= ' - ')
+                err1, result1 = self.update_content_rule(content_rules[item['name']], item)
+                if err1 == 2:
+                    print("\n", f"\033[31m{result1}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            else:
+                err, result = self.add_content_rule(item)
+                if err == 2:
+                    print(f"\033[31m{result}\033[0m")
+                else:
+                    content_rules[item['name']] = result
+                    print(f'\tПравило "{item["name"]}" добавлено.')
+
     def export_scenarios(self):
         """Выгрузить список сценариев"""
         print('Выгружается список "Сценарии" раздела "Политики безопасности":')
@@ -3067,7 +3192,8 @@ def menu3(utm, mode, section):
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
         elif section == 6:
-            print("1   - Экспортировать сценарии.")
+            print("1   - Экспортировать правила фильтрации контента.")
+            print("7   - Экспортировать сценарии.")
             print('9   - Экспортировать список "ICAP-серверы".')
             print('10   - Экспортировать список "ICAP-правила".')
             print('\033[36m99  - Экспортировать всё.\033[0m')
@@ -3139,6 +3265,7 @@ def menu3(utm, mode, section):
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
         elif section == 6:
+            print('1   - Импортировать список "Фильтрация контента".')
             print('8   - Импортировать список "ICAP-правила".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
@@ -3316,12 +3443,15 @@ def main():
                     utm.export_shaper_rules()
 
                 elif command == 601:
+                    utm.export_content_rules()
+                elif command == 607:
                     utm.export_scenarios()
                 elif command == 609:
                     utm.export_icap_servers()
                 elif command == 610:
                     utm.export_icap_rules()
                 elif command == 699:
+                    utm.export_content_rules()
                     utm.export_scenarios()
                     utm.export_icap_servers()
                     utm.export_icap_rules()
@@ -3363,6 +3493,7 @@ def main():
                     utm.export_nat_rules()
                     utm.export_loadbalancing_rules()
                     utm.export_shaper_rules()
+                    utm.export_content_rules()
                     utm.export_scenarios()
                     utm.export_icap_servers()
                     utm.export_icap_rules()
@@ -3511,9 +3642,12 @@ def main():
                         utm.import_loadbalancing_rules()
                         utm.import_shaper_rules()
 
+                    elif command == 601:
+                        utm.import_content_rules()
                     elif command == 608:
                         utm.import_icap_rules()
                     elif command == 699:
+                        utm.import_content_rules()
                         utm.import_icap_rules()
 
                     elif command == 9999:
@@ -3558,6 +3692,7 @@ def main():
                         utm.import_icap_servers()
                         utm.import_loadbalancing_rules()
                         utm.import_shaper_rules()
+                        utm.import_content_rules()
                         utm.import_icap_rules()
                 except UtmError as err:
                     print(err)

@@ -1091,10 +1091,36 @@ class UtmXmlRpc:
     def update_shaper_rule(self, rule_id, rule):
         """Обновить сценарий"""
         try:
-#            rule_id = shaper_rules[rule['name']]
             result = self._server.v1.shaper.rule.update(self._auth_token, rule_id, rule)
         except rpc.Fault as err:
             return 1, f"\tОшибка utm.update_shaper_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
+    def get_content_rules(self):
+        """Получить список правил фильтрации контента"""
+        try:
+            result = self._server.v1.content.rules.list(self._auth_token, 0, 1000, {})
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_content_rules: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result['items']), result['items']
+
+    def add_content_rule(self, rule):
+        """Добавить новое правило фильтрации контента"""
+        try:
+            result = self._server.v1.content.rule.add(self._auth_token, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_content_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def update_content_rule(self, rule_id, rule):
+        """Обновить сценарий"""
+        try:
+            result = self._server.v1.content.rule.update(self._auth_token, rule_id, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.update_content_rule: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result     # Возвращает True
 
