@@ -1174,33 +1174,32 @@ class UTM(UtmXmlRpc):
 
     def import_ssl_profiles(self):
         """Импортировать список профилей SSL раздела библиотеки"""
-        if self.version.startswith('6'):
-            print('Импорт списка "Профили SSL" раздела "Библиотеки":')
-            try:
-                with open("data/library/config_ssl_profiles.json", "r") as fh:
-                    data = json.load(fh)
-            except FileNotFoundError as err:
-                print(f'\t\033[31mСписок "Профили SSL" не импортирован!\n\tНе найден файл "data/library/config_ssl_profiles.json" с сохранённой конфигурацией!\033[0;0m')
-                return
+        print('Импорт списка "Профили SSL" раздела "Библиотеки":')
+        try:
+            with open("data/library/config_ssl_profiles.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Профили SSL" не импортирован!\n\tНе найден файл "data/library/config_ssl_profiles.json" с сохранённой конфигурацией!\033[0;0m')
+            return
 
-            if not data:
-                print(f"\tНет профилей netflow для импорта.")
-                return
-            for item in data:
-                err, result = self.add_ssl_profile(item)
-                if err == 1:
-                    print(result, end= ' - ')
-                    item['id'] = self.list_ssl_profiles[item['name']]
-                    err1, result1 = self.update_ssl_profile(item)
-                    if err1 != 0:
-                        print("\n", f"\033[31m{result1}\033[0m")
-                    else:
-                        print("\033[32mOk!\033[0;0m")
-                elif err == 2:
-                    print(f"\033[31m{result}\033[0m")
+        if not data:
+            print(f"\tНет профилей netflow для импорта.")
+            return
+        for item in data:
+            err, result = self.add_ssl_profile(item)
+            if err == 1:
+                print(result, end= ' - ')
+                item['id'] = self.list_ssl_profiles[item['name']]
+                err1, result1 = self.update_ssl_profile(item)
+                if err1 != 0:
+                    print("\n", f"\033[31m{result1}\033[0m")
                 else:
-                    self.list_ssl_profiles[item['name']] = result
-                    print(f'\tПрофиль SSL "{item["name"]}" добавлен.')
+                    print("\033[32mOk!\033[0;0m")
+            elif err == 2:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                self.list_ssl_profiles[item['name']] = result
+                print(f'\tПрофиль SSL "{item["name"]}" добавлен.')
 
 ################### Настройки ################################################
     def export_ntp(self):
@@ -2563,7 +2562,7 @@ class UTM(UtmXmlRpc):
                 item['ssl_profile_id'] = self.list_ssl_profiles[item['ssl_profile_id']]
             except KeyError as err:
                 print(f'\t\033[33mНе найден профиль SSL {err} для правила "{item["name"]}".\n\tЗагрузите профили SSL и повторите попытку.\033[0m')
-                item['url_list_exclusions'] = []
+                item['ssl_profile_id'] = self.list_ssl_profiles['Default SSL profile']
 
             if item['name'] in ssldecrypt_rules:
                 print(f'\tПравило "{item["name"]}" уже существует', end= ' - ')
@@ -2578,6 +2577,73 @@ class UTM(UtmXmlRpc):
                     print(f"\033[31m{result}\033[0m")
                 else:
                     ssldecrypt_rules[item['name']] = result
+                    print(f'\tПравило "{item["name"]}" добавлено.')
+
+    def export_sshdecrypt_rules(self):
+        """Выгрузить список правил инспектирования SSH"""
+        if self.version.startswith('6'):
+            print('Выгружается список "Инспектирование SSH" раздела "Политики безопасности":')
+            if not os.path.isdir('data/security_policies'):
+                os.makedirs('data/security_policies')
+
+            _, data = self.get_sshdecrypt_rules()
+
+            for item in data:
+                item.pop('id', None)
+                item.pop('rownumber', None)
+                item.pop('guid', None)
+                item.pop('position_layer', None)
+                self.get_names_users_and_groups(item)
+                self.set_src_zone_and_ips(item)
+                self.set_dst_zone_and_ips(item)
+                self.set_time_restrictions(item)
+                item['protocols'] = [self.services[x] for x in item['protocols']]
+
+            with open("data/security_policies/config_sshdecrypt_rules.json", "w") as fd:
+                json.dump(data, fd, indent=4, ensure_ascii=False)
+            print(f'\tСписок "Инспектирование SSH" выгружен в файл "data/security_policies/config_sshdecrypt_rules.json".')
+
+    def import_sshdecrypt_rules(self):
+        """Импортировать список правил инспектирования SSH"""
+        print('Импорт списка "Инспектирование SSH" раздела "Политики безопасности":')
+        try:
+            with open("data/security_policies/config_sshdecrypt_rules.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Инспектирование SSH" не импортирован!\n\tНе найден файл "data/security_policies/config_sshdecrypt_rules.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет правил инспектирования SSH для импорта.")
+            return
+
+        _, rules = self.get_sshdecrypt_rules()
+        sshdecrypt_rules = {x['name']: x['id'] for x in rules}
+
+        for item in data:
+            self.get_guids_users_and_groups(item)
+            self.set_src_zone_and_ips(item)
+            self.set_dst_zone_and_ips(item)
+            self.set_time_restrictions(item)
+            try:
+                item['protocols'] = [self.services[x] for x in item['protocols']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден сервис {err} для правила "{item["name"]}".\n\tЗагрузите список сервисов и повторите попытку.\033[0m')
+                item['protocols'] = []
+
+            if item['name'] in sshdecrypt_rules:
+                print(f'\tПравило "{item["name"]}" уже существует', end= ' - ')
+                err1, result1 = self.update_sshdecrypt_rule(sshdecrypt_rules[item['name']], item)
+                if err1 == 2:
+                    print("\n", f"\033[31m{result1}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            else:
+                err, result = self.add_sshdecrypt_rule(item)
+                if err == 2:
+                    print(f"\033[31m{result}\033[0m")
+                else:
+                    sshdecrypt_rules[item['name']] = result
                     print(f'\tПравило "{item["name"]}" добавлено.')
 
     def export_scenarios(self):
@@ -3333,6 +3399,8 @@ def menu3(utm, mode, section):
             print("1   - Экспортировать правила фильтрации контента.")
             print("2   - Экспортировать правила веб-безопасности.")
             print("3   - Экспортировать правила инспектирования SSL.")
+            if utm.version.startswith('6'):
+                print("4   - Экспортировать правила инспектирования SSH.")
             print("7   - Экспортировать сценарии.")
             print('9   - Экспортировать список "ICAP-серверы".')
             print('10   - Экспортировать список "ICAP-правила".')
@@ -3408,6 +3476,7 @@ def menu3(utm, mode, section):
             print('1   - Импортировать список "Фильтрация контента".')
             print('2   - Импортировать список "Веб-безопасность".')
             print('3   - Импортировать список "Инспектирование SSL".')
+            print('4   - Импортировать список "Инспектирование SSH".')
             print('8   - Импортировать список "ICAP-правила".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
@@ -3590,6 +3659,8 @@ def main():
                     utm.export_safebrowsing_rules()
                 elif command == 603:
                     utm.export_ssldecrypt_rules()
+                elif command == 604:
+                    utm.export_sshdecrypt_rules()
                 elif command == 607:
                     utm.export_scenarios()
                 elif command == 609:
@@ -3600,6 +3671,7 @@ def main():
                     utm.export_content_rules()
                     utm.export_safebrowsing_rules()
                     utm.export_ssldecrypt_rules()
+                    utm.export_sshdecrypt_rules()
                     utm.export_scenarios()
                     utm.export_icap_servers()
                     utm.export_icap_rules()
@@ -3644,6 +3716,7 @@ def main():
                     utm.export_content_rules()
                     utm.export_safebrowsing_rules()
                     utm.export_ssldecrypt_rules()
+                    utm.export_sshdecrypt_rules()
                     utm.export_scenarios()
                     utm.export_icap_servers()
                     utm.export_icap_rules()
@@ -3798,12 +3871,15 @@ def main():
                         utm.import_safebrowsing_rules()
                     elif command == 603:
                         utm.import_ssldecrypt_rules()
+                    elif command == 604:
+                        utm.import_sshdecrypt_rules()
                     elif command == 608:
                         utm.import_icap_rules()
                     elif command == 699:
                         utm.import_content_rules()
                         utm.import_safebrowsing_rules()
                         utm.import_ssldecrypt_rules()
+                        utm.import_sshdecrypt_rules()
                         utm.import_icap_rules()
 
                     elif command == 9999:
@@ -3851,6 +3927,7 @@ def main():
                         utm.import_content_rules()
                         utm.import_safebrowsing_rules()
                         utm.import_ssldecrypt_rules()
+                        utm.import_sshdecrypt_rules()
                         utm.import_icap_rules()
                 except UtmError as err:
                     print(err)
