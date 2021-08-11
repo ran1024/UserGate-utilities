@@ -7,7 +7,8 @@
 
 <p align="center"><img src="main_image.png"></p>
 
-Запускать в терминале.
+Скачать архив <b>ug_convert_config.zip</b>, распаковать, файл <b>ug_convert_config.py</b> сделать исполняемым.
+Запустить <b>ug_convert_config.py</b> в терминале. Программа работает в Linux.
 
 Программа Запрашивает ip узла, login и пароль администратора UTM.
 
