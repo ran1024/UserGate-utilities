@@ -3,7 +3,7 @@
 # Программа предназначена для переноса конфигурации с UTM версии 5 на версию 6
 # или между устройствами 6-ой версии.
 #
-import os, sys, ipaddress
+import os, sys
 import stdiomask
 import json
 from utm import UtmXmlRpc, UtmError
@@ -2476,7 +2476,7 @@ class UTM(UtmXmlRpc):
             return
 
         if not data:
-            print("\tНет правил фильтрации веб-безопасности для импорта.")
+            print("\tНет правил веб-безопасности для импорта.")
             return
 
         _, rules = self.get_safebrowsing_rules()
@@ -2505,6 +2505,79 @@ class UTM(UtmXmlRpc):
                     print(f"\033[31m{result}\033[0m")
                 else:
                     safebrowsing_rules[item['name']] = result
+                    print(f'\tПравило "{item["name"]}" добавлено.')
+
+    def export_ssldecrypt_rules(self):
+        """Выгрузить список правил инспектирования SSL"""
+        print('Выгружается список "Инспектирование SSL" раздела "Политики безопасности":')
+        if not os.path.isdir('data/security_policies'):
+            os.makedirs('data/security_policies')
+
+        if self.version.startswith('6'):
+            _, data = self.get_ssl_profiles_list()
+            self.list_ssl_profiles = {x['id']: x['name'] for x in data}
+
+        _, data = self.get_ssldecrypt_rules()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('rownumber', None)
+            item.pop('guid', None)
+            item.pop('position_layer', None)
+            item.pop('deleted_users', None)
+            self.get_names_users_and_groups(item)
+            self.set_src_zone_and_ips(item)
+            self.set_dst_zone_and_ips(item)
+            self.set_urls_and_categories(item)
+            self.set_time_restrictions(item)
+            item['ssl_profile_id'] = self.list_ssl_profiles[item['ssl_profile_id']] if 'ssl_profile_id' in item else 'Default SSL profile'
+
+        with open("data/security_policies/config_ssldecrypt_rules.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Инспектирование SSL" выгружен в файл "data/security_policies/config_ssldecrypt_rules.json".')
+
+    def import_ssldecrypt_rules(self):
+        """Импортировать список правил инспектирования SSL"""
+        print('Импорт списка "Инспектирование SSL" раздела "Политики безопасности":')
+        try:
+            with open("data/security_policies/config_ssldecrypt_rules.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Инспектирование SSL" не импортирован!\n\tНе найден файл "data/security_policies/config_ssldecrypt_rules.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет правил инспектирования SSL для импорта.")
+            return
+
+        _, rules = self.get_ssldecrypt_rules()
+        ssldecrypt_rules = {x['name']: x['id'] for x in rules}
+
+        for item in data:
+            self.get_guids_users_and_groups(item)
+            self.set_src_zone_and_ips(item)
+            self.set_dst_zone_and_ips(item)
+            self.set_urls_and_categories(item)
+            self.set_time_restrictions(item)
+            try:
+                item['ssl_profile_id'] = self.list_ssl_profiles[item['ssl_profile_id']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден профиль SSL {err} для правила "{item["name"]}".\n\tЗагрузите профили SSL и повторите попытку.\033[0m')
+                item['url_list_exclusions'] = []
+
+            if item['name'] in ssldecrypt_rules:
+                print(f'\tПравило "{item["name"]}" уже существует', end= ' - ')
+                err1, result1 = self.update_ssldecrypt_rule(ssldecrypt_rules[item['name']], item)
+                if err1 == 2:
+                    print("\n", f"\033[31m{result1}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            else:
+                err, result = self.add_ssldecrypt_rule(item)
+                if err == 2:
+                    print(f"\033[31m{result}\033[0m")
+                else:
+                    ssldecrypt_rules[item['name']] = result
                     print(f'\tПравило "{item["name"]}" добавлено.')
 
     def export_scenarios(self):
@@ -3259,6 +3332,7 @@ def menu3(utm, mode, section):
         elif section == 6:
             print("1   - Экспортировать правила фильтрации контента.")
             print("2   - Экспортировать правила веб-безопасности.")
+            print("3   - Экспортировать правила инспектирования SSL.")
             print("7   - Экспортировать сценарии.")
             print('9   - Экспортировать список "ICAP-серверы".')
             print('10   - Экспортировать список "ICAP-правила".')
@@ -3333,6 +3407,7 @@ def menu3(utm, mode, section):
         elif section == 6:
             print('1   - Импортировать список "Фильтрация контента".')
             print('2   - Импортировать список "Веб-безопасность".')
+            print('3   - Импортировать список "Инспектирование SSL".')
             print('8   - Импортировать список "ICAP-правила".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
@@ -3513,6 +3588,8 @@ def main():
                     utm.export_content_rules()
                 elif command == 602:
                     utm.export_safebrowsing_rules()
+                elif command == 603:
+                    utm.export_ssldecrypt_rules()
                 elif command == 607:
                     utm.export_scenarios()
                 elif command == 609:
@@ -3522,6 +3599,7 @@ def main():
                 elif command == 699:
                     utm.export_content_rules()
                     utm.export_safebrowsing_rules()
+                    utm.export_ssldecrypt_rules()
                     utm.export_scenarios()
                     utm.export_icap_servers()
                     utm.export_icap_rules()
@@ -3565,6 +3643,7 @@ def main():
                     utm.export_shaper_rules()
                     utm.export_content_rules()
                     utm.export_safebrowsing_rules()
+                    utm.export_ssldecrypt_rules()
                     utm.export_scenarios()
                     utm.export_icap_servers()
                     utm.export_icap_rules()
@@ -3717,11 +3796,14 @@ def main():
                         utm.import_content_rules()
                     elif command == 602:
                         utm.import_safebrowsing_rules()
+                    elif command == 603:
+                        utm.import_ssldecrypt_rules()
                     elif command == 608:
                         utm.import_icap_rules()
                     elif command == 699:
                         utm.import_content_rules()
                         utm.import_safebrowsing_rules()
+                        utm.import_ssldecrypt_rules()
                         utm.import_icap_rules()
 
                     elif command == 9999:
@@ -3768,6 +3850,7 @@ def main():
                         utm.import_shaper_rules()
                         utm.import_content_rules()
                         utm.import_safebrowsing_rules()
+                        utm.import_ssldecrypt_rules()
                         utm.import_icap_rules()
                 except UtmError as err:
                     print(err)

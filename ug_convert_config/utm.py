@@ -1151,6 +1151,33 @@ class UtmXmlRpc:
         else:
             return 0, result     # Возвращает True
 
+    def get_ssldecrypt_rules(self):
+        """Получить список правил инспектирования SSL"""
+        try:
+            result = self._server.v1.content.ssl.decryption.rules.list(self._auth_token, 0, 1000, {})
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_ssldecrypt_rules: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result['items']), result['items']
+
+    def add_ssldecrypt_rule(self, rule):
+        """Добавить новое правило инспектирования SSL"""
+        try:
+            result = self._server.v1.content.ssl.decryption.rule.add(self._auth_token, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_ssldecrypt_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def update_ssldecrypt_rule(self, rule_id, rule):
+        """Обновить правило инспектирования SSL"""
+        try:
+            result = self._server.v1.content.ssl.decryption.rule.update(self._auth_token, rule_id, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.update_ssldecrypt_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
     def get_scenarios_rules(self):
         """Получить список сценариев"""
         try:
