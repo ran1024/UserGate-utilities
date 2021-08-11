@@ -2442,6 +2442,71 @@ class UTM(UtmXmlRpc):
                     content_rules[item['name']] = result
                     print(f'\tПравило "{item["name"]}" добавлено.')
 
+    def export_safebrowsing_rules(self):
+        """Выгрузить список правил веб-безопасности"""
+        print('Выгружается список "Веб-безопасность" раздела "Политики безопасности":')
+        if not os.path.isdir('data/security_policies'):
+            os.makedirs('data/security_policies')
+
+        _, data = self.get_safebrowsing_rules()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('rownumber', None)
+            item.pop('guid', None)
+            item.pop('position_layer', None)
+            item.pop('deleted_users', None)
+            self.get_names_users_and_groups(item)
+            self.set_time_restrictions(item)
+            self.set_src_zone_and_ips(item)
+            item['url_list_exclusions'] = [self.list_url[x] for x in item['url_list_exclusions']]
+
+        with open("data/security_policies/config_safebrowsing_rules.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Веб-безопасность" выгружен в файл "data/security_policies/config_safebrowsing_rules.json".')
+
+    def import_safebrowsing_rules(self):
+        """Импортировать список правил веб-безопасности"""
+        print('Импорт списка "Веб-безопасность" раздела "Политики безопасности":')
+        try:
+            with open("data/security_policies/config_safebrowsing_rules.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Веб-безопасность" не импортирован!\n\tНе найден файл "data/security_policies/config_safebrowsing_rules.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет правил фильтрации веб-безопасности для импорта.")
+            return
+
+        _, rules = self.get_safebrowsing_rules()
+        safebrowsing_rules = {x['name']: x['id'] for x in rules}
+
+        for item in data:
+            self.get_guids_users_and_groups(item)
+            self.set_time_restrictions(item)
+            self.set_src_zone_and_ips(item)
+            try:
+                item['url_list_exclusions'] = [self.list_url[x] for x in item['url_list_exclusions']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден URL {err} для правила "{item["name"]}".\n\tЗагрузите списки URL и повторите попытку.\033[0m')
+                item['url_list_exclusions'] = []
+
+            if item['name'] in safebrowsing_rules:
+                print(f'\tПравило "{item["name"]}" уже существует', end= ' - ')
+                err1, result1 = self.update_safebrowsing_rule(safebrowsing_rules[item['name']], item)
+                if err1 == 2:
+                    print("\n", f"\033[31m{result1}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            else:
+                err, result = self.add_safebrowsing_rule(item)
+                if err == 2:
+                    print(f"\033[31m{result}\033[0m")
+                else:
+                    safebrowsing_rules[item['name']] = result
+                    print(f'\tПравило "{item["name"]}" добавлено.')
+
     def export_scenarios(self):
         """Выгрузить список сценариев"""
         print('Выгружается список "Сценарии" раздела "Политики безопасности":')
@@ -3193,6 +3258,7 @@ def menu3(utm, mode, section):
             print("\033[33m0   - Выход.\033[0m")
         elif section == 6:
             print("1   - Экспортировать правила фильтрации контента.")
+            print("2   - Экспортировать правила веб-безопасности.")
             print("7   - Экспортировать сценарии.")
             print('9   - Экспортировать список "ICAP-серверы".')
             print('10   - Экспортировать список "ICAP-правила".')
@@ -3266,6 +3332,7 @@ def menu3(utm, mode, section):
             print("\033[33m0   - Выход.\033[0m")
         elif section == 6:
             print('1   - Импортировать список "Фильтрация контента".')
+            print('2   - Импортировать список "Веб-безопасность".')
             print('8   - Импортировать список "ICAP-правила".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
@@ -3444,6 +3511,8 @@ def main():
 
                 elif command == 601:
                     utm.export_content_rules()
+                elif command == 602:
+                    utm.export_safebrowsing_rules()
                 elif command == 607:
                     utm.export_scenarios()
                 elif command == 609:
@@ -3452,6 +3521,7 @@ def main():
                     utm.export_icap_rules()
                 elif command == 699:
                     utm.export_content_rules()
+                    utm.export_safebrowsing_rules()
                     utm.export_scenarios()
                     utm.export_icap_servers()
                     utm.export_icap_rules()
@@ -3494,6 +3564,7 @@ def main():
                     utm.export_loadbalancing_rules()
                     utm.export_shaper_rules()
                     utm.export_content_rules()
+                    utm.export_safebrowsing_rules()
                     utm.export_scenarios()
                     utm.export_icap_servers()
                     utm.export_icap_rules()
@@ -3644,10 +3715,13 @@ def main():
 
                     elif command == 601:
                         utm.import_content_rules()
+                    elif command == 602:
+                        utm.import_safebrowsing_rules()
                     elif command == 608:
                         utm.import_icap_rules()
                     elif command == 699:
                         utm.import_content_rules()
+                        utm.import_safebrowsing_rules()
                         utm.import_icap_rules()
 
                     elif command == 9999:
@@ -3693,6 +3767,7 @@ def main():
                         utm.import_loadbalancing_rules()
                         utm.import_shaper_rules()
                         utm.import_content_rules()
+                        utm.import_safebrowsing_rules()
                         utm.import_icap_rules()
                 except UtmError as err:
                     print(err)

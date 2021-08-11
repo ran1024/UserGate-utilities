@@ -1124,6 +1124,33 @@ class UtmXmlRpc:
         else:
             return 0, result     # Возвращает True
 
+    def get_safebrowsing_rules(self):
+        """Получить список правил веб-безопасности"""
+        try:
+            result = self._server.v1.content.filtering.options.rules.list(self._auth_token, 0, 1000, {})
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_safebrowsing_rules: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result['items']), result['items']
+
+    def add_safebrowsing_rule(self, rule):
+        """Добавить новое правило веб-безопасности"""
+        try:
+            result = self._server.v1.content.filtering.options.rule.add(self._auth_token, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_safebrowsing_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def update_safebrowsing_rule(self, rule_id, rule):
+        """Обновить правило веб-безопасности"""
+        try:
+            result = self._server.v1.content.filtering.options.rule.update(self._auth_token, rule_id, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.update_safebrowsing_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
     def get_scenarios_rules(self):
         """Получить список сценариев"""
         try:
