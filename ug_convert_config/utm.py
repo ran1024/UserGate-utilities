@@ -1236,6 +1236,37 @@ class UtmXmlRpc:
         else:
             return 0, result     # Возвращает True
 
+    def get_scada_rules(self):
+        """Получить список правил АСУ ТП"""
+        try:
+            if self.version.startswith('6'):
+                result = self._server.v1.scada.rules.list(self._auth_token, 0, 1000, {})
+                return len(result['items']), result['items']
+            else:
+                result = self._server.v1.scada.rules.list(self._auth_token, {})
+                return len(result), result
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_scada_rules: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+
+    def add_scada_rule(self, rule):
+        """Добавить новое правило АСУ ТП"""
+        try:
+            result = self._server.v1.scada.rule.add(self._auth_token, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_scada_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def update_scada_rule(self, rule_id, rule):
+        """Обновить правило АСУ ТП"""
+        try:
+            result = self._server.v1.scada.rule.update(self._auth_token, rule_id, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.update_scada_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
     def get_scenarios_rules(self):
         """Получить список сценариев"""
         try:

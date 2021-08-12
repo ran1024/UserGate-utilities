@@ -2730,6 +2730,77 @@ class UTM(UtmXmlRpc):
                     idps_rules[item['name']] = result
                     print(f'\tПравило "{item["name"]}" добавлено.')
 
+    def export_scada_rules(self):
+        """Выгрузить список правил АСУ ТП"""
+        print('Выгружается список "Правила АСУ ТП" раздела "Политики безопасности":')
+        if not os.path.isdir('data/security_policies'):
+            os.makedirs('data/security_policies')
+
+        _, result = self.get_scada_list()
+        scada_profiles = {x['id']: x['name'] for x in result}
+
+        _, data = self.get_scada_rules()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('guid', None)
+            item.pop('position_layer', None)
+            item.pop('cc', None)
+            self.set_src_zone_and_ips(item)
+            self.set_dst_zone_and_ips(item)
+            item['services'] = [self.services[x] for x in item['services']]
+            item['scada_profiles'] = [scada_profiles[x] for x in item['scada_profiles']]
+
+        with open("data/security_policies/config_scada_rules.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Правила АСУ ТП" выгружен в файл "data/security_policies/config_scada_rules.json".')
+
+    def import_scada_rules(self):
+        """Импортировать список правил АСУ ТП"""
+        print('Импорт списка "Правила АСУ ТП" раздела "Политики безопасности":')
+        try:
+            with open("data/security_policies/config_scada_rules.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Правила АСУ ТП" не импортирован!\n\tНе найден файл "data/security_policies/config_scada_rules.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет правил АСУ ТП для импорта.")
+            return
+
+        _, rules = self.get_scada_rules()
+        scada_rules = {x['name']: x['id'] for x in rules}
+
+        for item in data:
+            self.set_src_zone_and_ips(item)
+            self.set_dst_zone_and_ips(item)
+            try:
+                item['services'] = [self.services[x] for x in item['services']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден сервис {err} для правила "{item["name"]}".\n\tЗагрузите список сервисов и повторите попытку.\033[0m')
+                item['services'] = []
+            try:
+                item['scada_profiles'] = [self.list_scada[x] for x in item['scada_profiles']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден профиль СОВ {err} для правила "{item["name"]}".\n\tЗагрузите профили СОВ и повторите попытку.\033[0m')
+                item['scada_profiles'] = []
+
+            if item['name'] in scada_rules:
+                print(f'\tПравило "{item["name"]}" уже существует', end= ' - ')
+                err1, result1 = self.update_scada_rule(scada_rules[item['name']], item)
+                if err1 == 2:
+                    print("\n", f"\033[31m{result1}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            else:
+                err, result = self.add_scada_rule(item)
+                if err == 2:
+                    print(f"\033[31m{result}\033[0m")
+                else:
+                    scada_rules[item['name']] = result
+                    print(f'\tПравило "{item["name"]}" добавлено.')
+
     def export_scenarios(self):
         """Выгрузить список сценариев"""
         print('Выгружается список "Сценарии" раздела "Политики безопасности":')
@@ -3486,6 +3557,7 @@ def menu3(utm, mode, section):
             if utm.version.startswith('6'):
                 print("4   - Экспортировать правила инспектирования SSH.")
             print("5   - Экспортировать правила СОВ.")
+            print("6   - Экспортировать правила АСУ ТП.")
             print("7   - Экспортировать сценарии.")
             print('9   - Экспортировать список "ICAP-серверы".')
             print('10   - Экспортировать список "ICAP-правила".')
@@ -3563,6 +3635,7 @@ def menu3(utm, mode, section):
             print('3   - Импортировать список "Инспектирование SSL".')
             print('4   - Импортировать список "Инспектирование SSH".')
             print('5   - Импортировать правила "СОВ".')
+            print('6   - Импортировать список "Правила АСУ ТП".')
             print('8   - Импортировать список "ICAP-правила".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
@@ -3749,6 +3822,8 @@ def main():
                     utm.export_sshdecrypt_rules()
                 elif command == 605:
                     utm.export_idps_rules()
+                elif command == 606:
+                    utm.export_scada_rules()
                 elif command == 607:
                     utm.export_scenarios()
                 elif command == 609:
@@ -3761,6 +3836,7 @@ def main():
                     utm.export_ssldecrypt_rules()
                     utm.export_sshdecrypt_rules()
                     utm.export_idps_rules()
+                    utm.export_scada_rules()
                     utm.export_scenarios()
                     utm.export_icap_servers()
                     utm.export_icap_rules()
@@ -3807,6 +3883,7 @@ def main():
                     utm.export_ssldecrypt_rules()
                     utm.export_sshdecrypt_rules()
                     utm.export_idps_rules()
+                    utm.export_scada_rules()
                     utm.export_scenarios()
                     utm.export_icap_servers()
                     utm.export_icap_rules()
@@ -3965,6 +4042,8 @@ def main():
                         utm.import_sshdecrypt_rules()
                     elif command == 605:
                         utm.import_idps_rules()
+                    elif command == 606:
+                        utm.import_scada_rules()
                     elif command == 608:
                         utm.import_icap_rules()
                     elif command == 699:
@@ -3973,6 +4052,7 @@ def main():
                         utm.import_ssldecrypt_rules()
                         utm.import_sshdecrypt_rules()
                         utm.import_idps_rules()
+                        utm.import_scada_rules()
                         utm.import_icap_rules()
 
                     elif command == 9999:
@@ -4022,6 +4102,7 @@ def main():
                         utm.import_ssldecrypt_rules()
                         utm.import_sshdecrypt_rules()
                         utm.import_idps_rules()
+                        utm.import_scada_rules()
                         utm.import_icap_rules()
                 except UtmError as err:
                     print(err)
