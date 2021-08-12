@@ -2646,6 +2646,90 @@ class UTM(UtmXmlRpc):
                     sshdecrypt_rules[item['name']] = result
                     print(f'\tПравило "{item["name"]}" добавлено.')
 
+    def export_idps_rules(self):
+        """Выгрузить список правил СОВ"""
+        print('Выгружается список "СОВ" раздела "Политики безопасности":')
+        if not os.path.isdir('data/security_policies'):
+            os.makedirs('data/security_policies')
+
+        result = self._server.v2.nlists.list(self._auth_token, 'ipspolicy', 0, 1000, {})
+        idps_profiles = {x['id']: x['name'] for x in result['items']}
+
+        _, data = self.get_idps_rules()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('guid', None)
+            item.pop('position_layer', None)
+            item.pop('apps', None)
+            item.pop('cc', None)
+            self.set_src_zone_and_ips(item)
+            self.set_dst_zone_and_ips(item)
+            item['services'] = [self.services[x] for x in item['services']]
+            item['idps_profiles'] = [idps_profiles[x] for x in item['idps_profiles']]
+            if self.version.startswith('6'):
+                item['idps_profiles_exclusions'] = [idps_profiles[x] for x in item['idps_profiles_exclusions']]
+            else:
+                item['idps_profiles_exclusions'] = []
+
+        with open("data/security_policies/config_idps_rules.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "СОВ" выгружен в файл "data/security_policies/config_idps_rules.json".')
+
+    def import_idps_rules(self):
+        """Импортировать список правил СОВ"""
+        print('Импорт списка "СОВ" раздела "Политики безопасности":')
+        try:
+            with open("data/security_policies/config_idps_rules.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "СОВ" не импортирован!\n\tНе найден файл "data/security_policies/config_idps_rules.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет правил СОВ для импорта.")
+            return
+
+        result = self._server.v2.nlists.list(self._auth_token, 'ipspolicy', 0, 1000, {})
+        idps_profiles = {x['name']: x['id'] for x in result['items']}
+
+        _, rules = self.get_idps_rules()
+        idps_rules = {x['name']: x['id'] for x in rules}
+
+        for item in data:
+            self.set_src_zone_and_ips(item)
+            self.set_dst_zone_and_ips(item)
+            try:
+                item['services'] = [self.services[x] for x in item['services']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден сервис {err} для правила "{item["name"]}".\n\tЗагрузите список сервисов и повторите попытку.\033[0m')
+                item['services'] = []
+            try:
+                item['idps_profiles'] = [idps_profiles[x] for x in item['idps_profiles']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден профиль СОВ {err} для правила "{item["name"]}".\n\tЗагрузите профили СОВ и повторите попытку.\033[0m')
+                item['idps_profiles'] = []
+            try:
+                item['idps_profiles_exclusions'] = [idps_profiles[x] for x in item['idps_profiles_exclusions']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден профиль СОВ {err} для правила "{item["name"]}".\n\tЗагрузите профили СОВ и повторите попытку.\033[0m')
+                item['idps_profiles_exclusions'] = []
+
+            if item['name'] in idps_rules:
+                print(f'\tПравило "{item["name"]}" уже существует', end= ' - ')
+                err1, result1 = self.update_idps_rule(idps_rules[item['name']], item)
+                if err1 == 2:
+                    print("\n", f"\033[31m{result1}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            else:
+                err, result = self.add_idps_rule(item)
+                if err == 2:
+                    print(f"\033[31m{result}\033[0m")
+                else:
+                    idps_rules[item['name']] = result
+                    print(f'\tПравило "{item["name"]}" добавлено.')
+
     def export_scenarios(self):
         """Выгрузить список сценариев"""
         print('Выгружается список "Сценарии" раздела "Политики безопасности":')
@@ -3401,6 +3485,7 @@ def menu3(utm, mode, section):
             print("3   - Экспортировать правила инспектирования SSL.")
             if utm.version.startswith('6'):
                 print("4   - Экспортировать правила инспектирования SSH.")
+            print("5   - Экспортировать правила СОВ.")
             print("7   - Экспортировать сценарии.")
             print('9   - Экспортировать список "ICAP-серверы".')
             print('10   - Экспортировать список "ICAP-правила".')
@@ -3477,6 +3562,7 @@ def menu3(utm, mode, section):
             print('2   - Импортировать список "Веб-безопасность".')
             print('3   - Импортировать список "Инспектирование SSL".')
             print('4   - Импортировать список "Инспектирование SSH".')
+            print('5   - Импортировать правила "СОВ".')
             print('8   - Импортировать список "ICAP-правила".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
@@ -3661,6 +3747,8 @@ def main():
                     utm.export_ssldecrypt_rules()
                 elif command == 604:
                     utm.export_sshdecrypt_rules()
+                elif command == 605:
+                    utm.export_idps_rules()
                 elif command == 607:
                     utm.export_scenarios()
                 elif command == 609:
@@ -3672,6 +3760,7 @@ def main():
                     utm.export_safebrowsing_rules()
                     utm.export_ssldecrypt_rules()
                     utm.export_sshdecrypt_rules()
+                    utm.export_idps_rules()
                     utm.export_scenarios()
                     utm.export_icap_servers()
                     utm.export_icap_rules()
@@ -3717,6 +3806,7 @@ def main():
                     utm.export_safebrowsing_rules()
                     utm.export_ssldecrypt_rules()
                     utm.export_sshdecrypt_rules()
+                    utm.export_idps_rules()
                     utm.export_scenarios()
                     utm.export_icap_servers()
                     utm.export_icap_rules()
@@ -3873,6 +3963,8 @@ def main():
                         utm.import_ssldecrypt_rules()
                     elif command == 604:
                         utm.import_sshdecrypt_rules()
+                    elif command == 605:
+                        utm.import_idps_rules()
                     elif command == 608:
                         utm.import_icap_rules()
                     elif command == 699:
@@ -3880,6 +3972,7 @@ def main():
                         utm.import_safebrowsing_rules()
                         utm.import_ssldecrypt_rules()
                         utm.import_sshdecrypt_rules()
+                        utm.import_idps_rules()
                         utm.import_icap_rules()
 
                     elif command == 9999:
@@ -3928,6 +4021,7 @@ def main():
                         utm.import_safebrowsing_rules()
                         utm.import_ssldecrypt_rules()
                         utm.import_sshdecrypt_rules()
+                        utm.import_idps_rules()
                         utm.import_icap_rules()
                 except UtmError as err:
                     print(err)
