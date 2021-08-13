@@ -1301,6 +1301,61 @@ class UtmXmlRpc:
         else:
             return 0, result     # Возвращает True
 
+    def get_mailsecurity_rules(self):
+        """Получить список правил защиты почтового трафика"""
+        try:
+            result = self._server.v1.mailsecurity.rules.list(self._auth_token, 0, 1000, {})
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_mailsecurity_rules: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result['items']), result['items']
+
+    def add_mailsecurity_rule(self, rule):
+        """Добавить новое правило защиты почтового трафика"""
+        try:
+            result = self._server.v1.mailsecurity.rule.add(self._auth_token, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_mailsecurity_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def update_mailsecurity_rule(self, rule_id, rule):
+        """Обновить правило защиты почтового трафика"""
+        try:
+            result = self._server.v1.mailsecurity.rule.update(self._auth_token, rule_id, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.update_mailsecurity_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
+    def get_mailsecurity_dnsbl(self):
+        """Получить список dnsbl и batv защиты почтового трафика"""
+        try:
+            dnsbl = self._server.v1.mailsecurity.dnsbl.config.get(self._auth_token)
+            batv = self._server.v1.mailsecurity.batv.config.get(self._auth_token)
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_mailsecurity_dnsbl: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return dnsbl, batv
+
+    def set_mailsecurity_dnsbl(self, rule):
+        """Установить конфигурацию DNSBL защиты почтового трафика"""
+        try:
+            result = self._server.v1.mailsecurity.dnsbl.config.set(self._auth_token, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.set_mailsecurity_dnsbl: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def set_mailsecurity_batv(self, rule):
+        """Установить конфигурацию BATV защиты почтового трафика"""
+        try:
+            result = self._server.v1.mailsecurity.batv.config.set(self._auth_token, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.set_mailsecurity_batv: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
     def get_icap_servers(self):
         """Получить список серверов ICAP"""
         try:

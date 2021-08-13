@@ -309,6 +309,11 @@ class UTM(UtmXmlRpc):
             item.pop('guid')
             item.pop('cc', None)
             item.pop('readonly', None)
+            if self.version.startswith('5'):
+                if item['protocols'][0]['port'] == '110':
+                    item['protocols'][0]['proto'] = 'pop3'
+                if item['protocols'][0]['port'] == '995':
+                    item['protocols'][0]['proto'] = 'pop3s'
         with open("data/library/config_services.json", "w") as fh:
             json.dump(data['items'], fh, indent=4, ensure_ascii=False)
         print(f'\tСписок сервисов выгружен в файл "data/library/config_services.json".')
@@ -2876,6 +2881,157 @@ class UTM(UtmXmlRpc):
             else:
                 print(f'\tСценарий "{item["name"]}" добавлен.')
 
+    def export_mailsecurity_rules(self):
+        """Выгрузить список правил защиты почтового трафика"""
+        print('Выгружаются список "Защита почтового трафика" раздела "Политики безопасности":')
+        if not os.path.isdir('data/security_policies'):
+            os.makedirs('data/security_policies')
+
+        _, result = self.get_nlist_list('emailgroup')
+        email = {x['id']: x['name'] for x in result}
+
+        _, data = self.get_mailsecurity_rules()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('rownumber', None)
+            item.pop('guid', None)
+            item.pop('deleted_users', None)
+            item.pop('position_layer', None)
+            self.set_src_zone_and_ips(item)
+            self.set_dst_zone_and_ips(item)
+            self.get_names_users_and_groups(item)
+            if self.version.startswith('6'):
+                item['services'] = [self.services[x] for x in item['services']]
+            else:
+                item['services'] = ["POP3" if x == 'pop' else x.upper() for x in item.pop('protocol')]
+                item['envelope_from_negate'] = False
+                item['envelope_to_negate'] = False
+            item['envelope_from'] = [[x[0], email[x[1]]] for x in item['envelope_from']]
+            item['envelope_to'] = [[x[0], email[x[1]]] for x in item['envelope_to']]
+
+        with open("data/security_policies/config_mailsecurity_rules.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Защита почтового трафика" выгружен в файл "data/security_policies/config_mailsecurity_rules.json".')
+
+        dnsbl, batv = self.get_mailsecurity_dnsbl()
+
+        for x in dnsbl['white_list']:
+            if x[0] == 'list_id':
+                x[1] = self.list_IP[x[1]]
+        for x in dnsbl['black_list']:
+            if x[0] == 'list_id':
+                x[1] = self.list_IP[x[1]]
+
+        with open("data/security_policies/config_mailsecurity_dnsbl.json", "w") as fd:
+            json.dump(dnsbl, fd, indent=4, ensure_ascii=False)
+        print(f'\tНастройки DNSBL выгружены в файл "data/security_policies/config_mailsecurity_dnsbl.json".')
+
+        with open("data/security_policies/config_mailsecurity_batv.json", "w") as fd:
+            json.dump(batv, fd, indent=4, ensure_ascii=False)
+        print(f'\tНастройки BATV выгружены в файл "data/security_policies/config_mailsecurity_batv.json".')
+
+    def import_mailsecurity_rules(self):
+        """Импортировать список правил защиты почтового трафика"""
+        print('Импорт списка "Защита почтового трафика" раздела "Политики безопасности":')
+        try:
+            with open("data/security_policies/config_mailsecurity_rules.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Защита почтового трафика" не импортирован!\n\tНе найден файл "data/security_policies/config_mailsecurity_rules.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет правил защиты почтового трафика для импорта.")
+            return
+
+        _, result = self.get_nlist_list('emailgroup')
+        email = {x['name']: x['id'] for x in result}
+
+        _, rules = self.get_mailsecurity_rules()
+        mailsecurity_rules = {x['name']: x['id'] for x in rules}
+
+        for item in data:
+            self.set_src_zone_and_ips(item)
+            self.set_dst_zone_and_ips(item)
+            self.get_guids_users_and_groups(item)
+            try:
+                item['services'] = [self.services[x] for x in item['services']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден сервис {err} для правила "{item["name"]}".\n\tЗагрузите список сервисов и повторите попытку.\033[0m')
+                item['services'] = []
+            try:
+                item['envelope_from'] = [[x[0], email[x[1]]] for x in item['envelope_from']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден список почтовых адресов {err} для правила "{item["name"]}".\n\tЗагрузите список почтовых адресов и повторите попытку.\033[0m')
+                item['envelope_from'] = []
+            try:
+                item['envelope_to'] = [[x[0], email[x[1]]] for x in item['envelope_to']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден список почтовых адресов {err} для правила "{item["name"]}".\n\tЗагрузите список почтовых адресов и повторите попытку.\033[0m')
+                item['envelope_to'] = []
+
+            if item['name'] in mailsecurity_rules:
+                print(f'\tПравило "{item["name"]}" уже существует', end= ' - ')
+                err1, result1 = self.update_mailsecurity_rule(mailsecurity_rules[item['name']], item)
+                if err1 == 2:
+                    print("\n", f"\033[31m{result1}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            else:
+                err, result = self.add_mailsecurity_rule(item)
+                if err == 2:
+                    print(f"\033[31m{result}\033[0m")
+                else:
+                    mailsecurity_rules[item['name']] = result
+                    print(f'\tПравило "{item["name"]}" добавлено.')
+
+    def import_mailsecurity_dnsbl(self):
+        """Импортировать dnsbl и batv защиты почтового трафика"""
+        print('Импорт списка DNSBL защиты почтового трафика:')
+        try:
+            with open("data/security_policies/config_mailsecurity_dnsbl.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок DNSBL не импортирован!\n\tНе найден файл "data/security_policies/config_mailsecurity_dnsbl.json" с сохранённой конфигурацией!\033[0;0m')
+        else:
+            if data:
+                try:
+                    for x in data['white_list']:
+                        if x[0] == 'list_id':
+                            x[1] = self.list_IP[x[1]]
+                    for x in data['black_list']:
+                        if x[0] == 'list_id':
+                            x[1] = self.list_IP[x[1]]
+                except KeyError as err:
+                    print(f'\t\033[33mНе найден список IP-адресов {err} для правила "{item["name"]}".\n\tЗагрузите списки IP-адресов и URL и повторите попытку.\033[0m')
+                    data['white_list'] = []
+                    data['black_list'] = []
+                    
+                err, result = self.set_mailsecurity_dnsbl(data)
+                if err == 2:
+                    print(f"\033[31m{result}\033[0m")
+                else:
+                    print(f'\tСписок DNSBL импортирован.')
+            else:
+                print("\tСписок DNSBL пуст.")
+
+        print('Импорт настройки BATV защиты почтового трафика:')
+        try:
+            with open("data/security_policies/config_mailsecurity_batv.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mНастройка BATV не импортированы!\n\tНе найден файл "data/security_policies/config_mailsecurity_batv.json" с сохранённой конфигурацией!\033[0;0m')
+        else:
+            if data:
+                err, result = self.set_mailsecurity_batv(data)
+                if err == 2:
+                    print(f"\033[31m{result}\033[0m")
+                else:
+                    print(f'\tНастройка BATV импортирована.')
+            else:
+                print("\tСписок BATV пуст.")
+
     def export_icap_rules(self):
         """Выгрузить список правил ICAP"""
         print('Выгружается список "ICAP-правила" раздела "Политики безопасности":')
@@ -3559,6 +3715,7 @@ def menu3(utm, mode, section):
             print("5   - Экспортировать правила СОВ.")
             print("6   - Экспортировать правила АСУ ТП.")
             print("7   - Экспортировать сценарии.")
+            print('8   - Экспортировать список "Защита почтового трафика".')
             print('9   - Экспортировать список "ICAP-серверы".')
             print('10   - Экспортировать список "ICAP-правила".')
             print('\033[36m99  - Экспортировать всё.\033[0m')
@@ -3636,6 +3793,7 @@ def menu3(utm, mode, section):
             print('4   - Импортировать список "Инспектирование SSH".')
             print('5   - Импортировать правила "СОВ".')
             print('6   - Импортировать список "Правила АСУ ТП".')
+            print('7   - Импортировать список "Защита почтового трафика".')
             print('8   - Импортировать список "ICAP-правила".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
@@ -3826,6 +3984,8 @@ def main():
                     utm.export_scada_rules()
                 elif command == 607:
                     utm.export_scenarios()
+                elif command == 608:
+                    utm.export_mailsecurity_rules()
                 elif command == 609:
                     utm.export_icap_servers()
                 elif command == 610:
@@ -3838,6 +3998,7 @@ def main():
                     utm.export_idps_rules()
                     utm.export_scada_rules()
                     utm.export_scenarios()
+                    utm.export_mailsecurity_rules()
                     utm.export_icap_servers()
                     utm.export_icap_rules()
 
@@ -3885,6 +4046,7 @@ def main():
                     utm.export_idps_rules()
                     utm.export_scada_rules()
                     utm.export_scenarios()
+                    utm.export_mailsecurity_rules()
                     utm.export_icap_servers()
                     utm.export_icap_rules()
             except UtmError as err:
@@ -4044,6 +4206,9 @@ def main():
                         utm.import_idps_rules()
                     elif command == 606:
                         utm.import_scada_rules()
+                    elif command == 607:
+                        utm.import_mailsecurity_rules()
+                        utm.import_mailsecurity_dnsbl()
                     elif command == 608:
                         utm.import_icap_rules()
                     elif command == 699:
@@ -4053,6 +4218,8 @@ def main():
                         utm.import_sshdecrypt_rules()
                         utm.import_idps_rules()
                         utm.import_scada_rules()
+                        utm.import_mailsecurity_rules()
+                        utm.import_mailsecurity_dnsbl()
                         utm.import_icap_rules()
 
                     elif command == 9999:
@@ -4103,6 +4270,8 @@ def main():
                         utm.import_sshdecrypt_rules()
                         utm.import_idps_rules()
                         utm.import_scada_rules()
+                        utm.import_mailsecurity_rules()
+                        utm.import_mailsecurity_dnsbl()
                         utm.import_icap_rules()
                 except UtmError as err:
                     print(err)
