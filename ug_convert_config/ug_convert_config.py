@@ -3125,6 +3125,142 @@ class UTM(UtmXmlRpc):
             else:
                 print(f'\tICAP-правило "{item["name"]}" добавлено.')
 
+    def export_dos_profiles(self):
+        """Выгрузить список профилей DoS"""
+        print('Выгружается список "Профили DoS" раздела "Политики безопасности":')
+        if not os.path.isdir('data/security_policies'):
+            os.makedirs('data/security_policies')
+
+        _, data = self.get_dos_profiles()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('guid', None)
+            item.pop('cc', None)
+
+        with open("data/security_policies/config_dos_profiles.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Профили DoS" выгружен в файл "data/security_policies/config_dos_profiles.json".')
+
+    def import_dos_profiles(self):
+        """Импортировать список профилей DoS"""
+        print('Импорт списка "Профили DoS" раздела "Политики безопасности":')
+        try:
+            with open("data/security_policies/config_dos_profiles.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Профили DoS" не импортирован!\n\tНе найден файл "data/security_policies/config_dos_profiles.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет профилей DoS для импорта.")
+            return
+
+        total, dos = self.get_dos_profiles()
+        dos_profiles = {x['name']: x['id'] for x in dos if total}
+
+        for item in data:
+            if item['name'] in dos_profiles:
+                print(f'\tПрофиль "{item["name"]}" уже существует', end= ' - ')
+                err, result = self.update_dos_profile(dos_profiles[item['name']], item)
+                if err != 0:
+                    print("\n", f"\033[31m{result1}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            else:
+                err, result = self.add_dos_profile(item)
+                if err == 2:
+                    print(f"\033[31m{result}\033[0m")
+                else:
+                    dos_profiles[item['name']] = result
+                    print(f'\tПрофиль DoS "{item["name"]}" добавлен.')
+
+    def export_dos_rules(self):
+        """Выгрузить список правил защиты DoS"""
+        print('Выгружаются список "Правила защиты DoS" раздела "Политики безопасности":')
+        if not os.path.isdir('data/security_policies'):
+            os.makedirs('data/security_policies')
+
+        total, dos = self.get_dos_profiles()
+        dos_profiles = {x['id']: x['name'] for x in dos if total}
+
+        _, data = self.get_dos_rules()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('rownumber', None)
+            item.pop('guid', None)
+            item.pop('position_layer', None)
+            self.set_src_zone_and_ips(item)
+            self.set_dst_zone_and_ips(item)
+            self.get_names_users_and_groups(item)
+            item['services'] = [self.services[x] for x in item['services']]
+            self.set_time_restrictions(item)
+            item['dos_profile'] = dos_profiles[item['dos_profile']]
+            if item['scenario_rule_id']:
+                item['scenario_rule_id'] = self.scenarios_rules[item['scenario_rule_id']]
+
+        with open("data/security_policies/config_dos_rules.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Правила защиты DoS" выгружен в файл "data/security_policies/config_dos_rules.json".')
+
+    def import_dos_rules(self):
+        """Импортировать список правил защиты DoS"""
+        print('Импорт списка "Правила защиты DoS" раздела "Политики безопасности":')
+        try:
+            with open("data/security_policies/config_dos_rules.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Правила защиты DoS" не импортирован!\n\tНе найден файл "data/security_policies/config_dos_rules.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет правил защиты DoS для импорта.")
+            return
+
+        total, profiles = self.get_dos_profiles()
+        dos_profiles = {x['name']: x['id'] for x in profiles if total}
+
+        total, rules = self.get_dos_rules()
+        dos_rules = {x['name']: x['id'] for x in rules if total}
+
+        for item in data:
+            self.get_guids_users_and_groups(item)
+            self.set_src_zone_and_ips(item)
+            self.set_dst_zone_and_ips(item)
+            self.set_time_restrictions(item)
+            try:
+                item['services'] = [self.services[x] for x in item['services']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден сервис {err} для правила "{item["name"]}".\n\tЗагрузите список сервисов и повторите попытку.\033[0m')
+                item['services'] = []
+            try:
+                item['dos_profile'] = dos_profiles[item['dos_profile']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден профиль DoS {err} для правила "{item["name"]}".\n\tЗагрузите профили DoS и повторите попытку.\033[0m')
+                item['dos_profile'] = []
+            if item['scenario_rule_id']:
+                try:
+                    item['scenario_rule_id'] = self.scenarios_rules[item['scenario_rule_id']]
+                except KeyError as err:
+                    print(f'\t\033[33mНе найден сценарий {err} для правила "{item["name"]}".\n\tЗагрузите сценарии и повторите попытку.\033[0m')
+                    item['scenario_rule_id'] = False
+
+            if item['name'] in dos_rules:
+                print(f'\tПравило "{item["name"]}" уже существует', end= ' - ')
+                err, result = self.update_dos_rule(dos_rules[item['name']], item)
+                if err == 2:
+                    print("\n", f"\033[31m{result1}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            else:
+                err, result = self.add_dos_rule(item)
+                if err == 2:
+                    print(f"\033[31m{result}\033[0m")
+                else:
+                    dos_rules[item['name']] = result
+                    print(f'\tПравило "{item["name"]}" добавлено.')
+
 ################### ZONES #####################################
     def export_zones_list(self):
         """Выгрузить список зон"""
@@ -3718,6 +3854,8 @@ def menu3(utm, mode, section):
             print('8   - Экспортировать список "Защита почтового трафика".')
             print('9   - Экспортировать список "ICAP-серверы".')
             print('10   - Экспортировать список "ICAP-правила".')
+            print('11   - Экспортировать список "Профили DoS".')
+            print('12   - Экспортировать список "Правила защиты DoS".')
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -3795,6 +3933,8 @@ def menu3(utm, mode, section):
             print('6   - Импортировать список "Правила АСУ ТП".')
             print('7   - Импортировать список "Защита почтового трафика".')
             print('8   - Импортировать список "ICAP-правила".')
+            print('9   - Импортировать список "Профили DoS".')
+            print('10  - Импортировать список "Правила защиты DoS".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -3990,6 +4130,10 @@ def main():
                     utm.export_icap_servers()
                 elif command == 610:
                     utm.export_icap_rules()
+                elif command == 611:
+                    utm.export_dos_profiles()
+                elif command == 612:
+                    utm.export_dos_rules()
                 elif command == 699:
                     utm.export_content_rules()
                     utm.export_safebrowsing_rules()
@@ -4001,6 +4145,8 @@ def main():
                     utm.export_mailsecurity_rules()
                     utm.export_icap_servers()
                     utm.export_icap_rules()
+                    utm.export_dos_profiles()
+                    utm.export_dos_rules()
 
                 elif command == 9999:
                     utm.export_morphology_lists()
@@ -4049,6 +4195,8 @@ def main():
                     utm.export_mailsecurity_rules()
                     utm.export_icap_servers()
                     utm.export_icap_rules()
+                    utm.export_dos_profiles()
+                    utm.export_dos_rules()
             except UtmError as err:
                 print(err)
             except Exception as err:
@@ -4211,6 +4359,10 @@ def main():
                         utm.import_mailsecurity_dnsbl()
                     elif command == 608:
                         utm.import_icap_rules()
+                    elif command == 609:
+                        utm.import_dos_profiles()
+                    elif command == 610:
+                        utm.import_dos_rules()
                     elif command == 699:
                         utm.import_content_rules()
                         utm.import_safebrowsing_rules()
@@ -4221,6 +4373,8 @@ def main():
                         utm.import_mailsecurity_rules()
                         utm.import_mailsecurity_dnsbl()
                         utm.import_icap_rules()
+                        utm.import_dos_profiles()
+                        utm.import_dos_rules()
 
                     elif command == 9999:
                         utm.import_morphology()
@@ -4273,6 +4427,8 @@ def main():
                         utm.import_mailsecurity_rules()
                         utm.import_mailsecurity_dnsbl()
                         utm.import_icap_rules()
+                        utm.import_dos_profiles()
+                        utm.import_dos_rules()
                 except UtmError as err:
                     print(err)
                 except Exception as err:

@@ -1424,6 +1424,60 @@ class UtmXmlRpc:
         else:
             return 0, result     # Возвращает True
 
+    def get_dos_profiles(self):
+        """Получить список профилей DoS"""
+        try:
+            result = self._server.v1.dos.profiles.list(self._auth_token, 0, 100, '')
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_dos_profiles: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result['items']), result['items']
+
+    def add_dos_profile(self, profile):
+        """Добавить новый профиль DoS"""
+        try:
+            result = self._server.v1.dos.profile.add(self._auth_token, profile)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_dos_profile: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def update_dos_profile(self, profile_id, profile):
+        """Обновить профиль DoS"""
+        try:
+            result = self._server.v1.dos.profile.update(self._auth_token, profile_id, profile)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.update_dos_profile: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
+    def get_dos_rules(self):
+        """Получить список правил защиты DoS"""
+        try:
+            result = self._server.v1.dos.rules.list(self._auth_token, 0, 100, {})
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_dos_rules: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result['items']), result['items']
+
+    def add_dos_rule(self, rule):
+        """Добавить новое правило защиты DoS"""
+        try:
+            result = self._server.v1.dos.rule.add(self._auth_token, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_dos_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def update_dos_rule(self, rule_id, rule):
+        """Обновить правило защиты DoS"""
+        try:
+            result = self._server.v1.dos.rule.update(self._auth_token, rule_id, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.update_dos_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
     def get_reverseproxy_servers(self):
         """Получить список серверов reverse-прокси"""
         try:
