@@ -1207,6 +1207,21 @@ class UTM(UtmXmlRpc):
                 print(f'\tПрофиль SSL "{item["name"]}" добавлен.')
 
 ################### Настройки ################################################
+    def export_certivicates_list(self):
+        """Выгрузить список сертификатов"""
+        print('Выгружаются список "Сертификаты" раздела "UserGate":')
+        if not os.path.isdir('data/usergate'):
+            os.makedirs('data/usergate')
+
+        _, data = self.get_certificates_list()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('cc', None)
+        with open("data/usergate/certivicates_list.json", "w") as fh:
+            json.dump(data, fh, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Сертификаты" выгружен в файл "data/usergate/certivicates_list.json".')
+
     def export_ntp(self):
         """Выгрузить настройки NTP"""
         print('Выгружаются "Настройки NTP" раздела "Настройки":')
@@ -3164,7 +3179,7 @@ class UTM(UtmXmlRpc):
                 print(f'\tПрофиль "{item["name"]}" уже существует', end= ' - ')
                 err, result = self.update_dos_profile(dos_profiles[item['name']], item)
                 if err != 0:
-                    print("\n", f"\033[31m{result1}\033[0m")
+                    print("\n", f"\033[31m{result}\033[0m")
                 else:
                     print("\033[32mUpdated!\033[0;0m")
             else:
@@ -3250,7 +3265,7 @@ class UTM(UtmXmlRpc):
                 print(f'\tПравило "{item["name"]}" уже существует', end= ' - ')
                 err, result = self.update_dos_rule(dos_rules[item['name']], item)
                 if err == 2:
-                    print("\n", f"\033[31m{result1}\033[0m")
+                    print("\n", f"\033[31m{result}\033[0m")
                 else:
                     print("\033[32mUpdated!\033[0;0m")
             else:
@@ -3260,6 +3275,87 @@ class UTM(UtmXmlRpc):
                 else:
                     dos_rules[item['name']] = result
                     print(f'\tПравило "{item["name"]}" добавлено.')
+
+    def export_proxyportal_rules(self):
+        """Выгрузить список URL-ресурсов веб-портала"""
+        print('Выгружаются список "Веб-портал" раздела "Глобальный портал":')
+        if not os.path.isdir('data/proxy_portal'):
+            os.makedirs('data/proxy_portal')
+
+        if self.version.startswith('6'):
+            _, result = self.get_ssl_profiles_list()
+            ssl_profiles = {x['id']: x['name'] for x in result}
+            _, result = self.get_certificates_list()
+            ssl_certificates = {x['id']: x['name'] for x in result}
+
+        _, data = self.get_proxyportal_rules()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('rownumber', None)
+            item.pop('position_layer', None)
+            self.get_names_users_and_groups(item)
+            if self.version.startswith('6'):
+                if item['mapping_url_ssl_profile_id']:
+                    item['mapping_url_ssl_profile_id'] = ssl_profiles[item['mapping_url_ssl_profile_id']]
+                if item['mapping_url_certificate_id']:
+                    item['mapping_url_certificate_id'] = ssl_certificates[item['mapping_url_certificate_id']]
+            else:
+                item['mapping_url_ssl_profile_id'] = 0
+                item['mapping_url_certificate_id'] = 0
+
+        with open("data/proxy_portal/config_web_portal.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Веб-портал" выгружен в файл "data/proxy_portal/config_web_portal.json".')
+
+    def import_proxyportal_rules(self):
+        """Импортировать список URL-ресурсов веб-портала"""
+        print('Импорт списка "Веб-портал" раздела "Глобальный портал":')
+        try:
+            with open("data/proxy_portal/config_web_portal.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Веб-портал" не импортирован!\n\tНе найден файл "data/proxy_portal/config_web_portal.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tСписок URL-ресурсов веб-портала пуст.")
+            return
+
+        _, result = self.get_certificates_list()
+        ssl_certificates = {x['name']: x['id'] for x in result}
+        _, result = self.get_proxyportal_rules()
+        list_proxyportal = {x['name']: x['id'] for x in result}
+
+        for item in data:
+            self.get_guids_users_and_groups(item)
+            try:
+                if item['mapping_url_ssl_profile_id']:
+                    item['mapping_url_ssl_profile_id'] = self.list_ssl_profiles[item['mapping_url_ssl_profile_id']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден профиль SSL {err} для правила "{item["name"]}".\n\tЗагрузите профили SSL и повторите попытку.\033[0m')
+                item['mapping_url_ssl_profile_id'] = 0
+            try:
+                if item['mapping_url_certificate_id']:
+                    item['mapping_url_certificate_id'] = ssl_certificates[item['mapping_url_certificate_id']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден сертификат {err} для правила "{item["name"]}".\n\tСоздайте сертификат и повторите попытку.\033[0m')
+                item['mapping_url_certificate_id'] = 0
+
+            if item['name'] in list_proxyportal:
+                print(f'\tURL ресурс "{item["name"]}" уже существует', end= ' - ')
+                err, result = self.update_proxyportal_rule(list_proxyportal[item['name']], item)
+                if err == 2:
+                    print("\n", f"\033[31m{result}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            else:
+                err, result = self.add_proxyportal_rule(item)
+                if err == 2:
+                    print(f"\033[31m{result}\033[0m")
+                else:
+                    list_proxyportal[item['name']] = result
+                    print(f'\tURL ресурс "{item["name"]}" добавлен.')
 
 ################### ZONES #####################################
     def export_zones_list(self):
@@ -3761,6 +3857,7 @@ def menu2(mode):
     print("4   - Пользователи и устройства")
     print("5   - Политики сети")
     print("6   - Политики безопасности")
+    print("7   - Глобальный портал")
     print("\033[36m99  - Выбрать всё.\033[0m")
     print("\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m")
     print("\033[33m0   - Выход.\033[0m")
@@ -3768,7 +3865,7 @@ def menu2(mode):
         try:
             section = int(input(f"\nВведите номер раздела для {'экспорта' if mode == 1 else 'импорта'}: "))
             print("")
-            if section not in [0, 1, 2, 3, 4, 5, 6, 99, 999]:
+            if section not in [0, 1, 2, 3, 4, 5, 6, 7, 99, 999]:
                 print("Вы ввели номер несуществующего раздела.")
             elif section == 0:
                 sys.exit()
@@ -3819,6 +3916,7 @@ def menu3(utm, mode, section):
             print('1   - Экспортировать настройки NTP раздела "Настройки".')
             print('2   - Экспортировать настройки Модулей и кэширования HTTP раздела "Настройки".')
             print('3   - Экспортировать настройки Веб-портала раздела "Настройки".')
+            print('4   - Экспортировать список "Сертификаты" раздела "UserGate".')
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -3857,6 +3955,11 @@ def menu3(utm, mode, section):
             print('11   - Экспортировать список "Профили DoS".')
             print('12   - Экспортировать список "Правила защиты DoS".')
             print('\033[36m99  - Экспортировать всё.\033[0m')
+            print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
+            print("\033[33m0   - Выход.\033[0m")
+        elif section == 7:
+            print('1   - Экспортировать список "Веб-портал" раздела "Глобальный портал".')
+            print('\033[36m99  - Экспортировать весь раздел "Глобальный портал".\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
     else:
@@ -3935,6 +4038,11 @@ def menu3(utm, mode, section):
             print('8   - Импортировать список "ICAP-правила".')
             print('9   - Импортировать список "Профили DoS".')
             print('10  - Импортировать список "Правила защиты DoS".')
+            print('\033[36m99  - Импортировать всё.\033[0m')
+            print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
+            print("\033[33m0   - Выход.\033[0m")
+        elif section == 7:
+            print('1   - Импортировать список "Веб-портал" раздела "Глобальный портал".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -4065,10 +4173,13 @@ def main():
                     utm.export_settings()
                 elif command == 303:
                     utm.export_proxy_portal()
+                elif command == 304:
+                    utm.export_certivicates_list()
                 elif command == 399:
                     utm.export_ntp()
                     utm.export_settings()
                     utm.export_proxy_portal()
+                    utm.export_certivicates_list()
 
                 elif command == 401:
                     utm.export_groups_lists()
@@ -4148,6 +4259,11 @@ def main():
                     utm.export_dos_profiles()
                     utm.export_dos_rules()
 
+                elif command == 701:
+                    utm.export_proxyportal_rules()
+                elif command == 799:
+                    utm.export_proxyportal_rules()
+
                 elif command == 9999:
                     utm.export_morphology_lists()
                     utm.export_services_list()
@@ -4173,6 +4289,7 @@ def main():
                     utm.export_ntp()
                     utm.export_settings()
                     utm.export_proxy_portal()
+                    utm.export_certivicates_list()
                     utm.export_groups_lists()
                     utm.export_users_lists()
                     utm.export_2fa_profiles()
@@ -4197,6 +4314,7 @@ def main():
                     utm.export_icap_rules()
                     utm.export_dos_profiles()
                     utm.export_dos_rules()
+                    utm.export_proxyportal_rules()
             except UtmError as err:
                 print(err)
             except Exception as err:
@@ -4376,6 +4494,11 @@ def main():
                         utm.import_dos_profiles()
                         utm.import_dos_rules()
 
+                    elif command == 701:
+                        utm.import_proxyportal_rules()
+                    elif command == 799:
+                        utm.import_proxyportal_rules()
+                        
                     elif command == 9999:
                         utm.import_morphology()
                         utm.import_services()
@@ -4429,6 +4552,7 @@ def main():
                         utm.import_icap_rules()
                         utm.import_dos_profiles()
                         utm.import_dos_rules()
+                        utm.import_proxyportal_rules()
                 except UtmError as err:
                     print(err)
                 except Exception as err:

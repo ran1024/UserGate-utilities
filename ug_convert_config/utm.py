@@ -14,7 +14,6 @@ class UtmXmlRpc:
         self.version = None
         self.server_ip = server_ip
         self.node_name = None
-#        self.auth_servers = {}  # Список серверов авторизации {name: id}
 
     def _connect(self):
         """Подключиться к UTM"""
@@ -53,6 +52,15 @@ class UtmXmlRpc:
                 print('Сессия завершилась по таймауту.')
 
 ################################### Settings ####################################
+    def get_certificates_list(self):
+        """Получить список сертификатов"""
+        try:
+            result = self._server.v2.settings.certificates.list(self._auth_token)
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_certificates_list: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result), result
+
     def get_ntp_config(self):
         """Получить конфигурацию NTP"""
         try:
@@ -1475,6 +1483,33 @@ class UtmXmlRpc:
             result = self._server.v1.dos.rule.update(self._auth_token, rule_id, rule)
         except rpc.Fault as err:
             return 2, f"\tОшибка utm.update_dos_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
+    def get_proxyportal_rules(self):
+        """Получить список ресурсов URL веб-портала"""
+        try:
+            result = self._server.v1.proxyportal.bookmarks.list(self._auth_token, {})
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_proxyportal_rules: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result), result
+
+    def add_proxyportal_rule(self, rule):
+        """Добавить новый URL-ресурс веб-портала"""
+        try:
+            result = self._server.v1.proxyportal.bookmark.add(self._auth_token, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_proxyportal_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def update_proxyportal_rule(self, rule_id, rule):
+        """Обновить URL-ресурс веб-портала"""
+        try:
+            result = self._server.v1.proxyportal.bookmark.update(self._auth_token, rule_id, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.update_proxyportal_rule: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result     # Возвращает True
 
