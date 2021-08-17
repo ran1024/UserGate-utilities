@@ -126,6 +126,9 @@ class UTM(UtmXmlRpc):
         _, data = self.get_scenarios_rules()
         self.scenarios_rules = {x['id']: x['name'] for x in data}
 
+        total, data = self.get_reverseproxy_servers()
+        self.reverse_servers = {x['id']: x['name'] for x in data if total}
+
     def init_struct_for_import(self):
         """Заполнить служебные структуры данных"""
         try:
@@ -215,6 +218,9 @@ class UTM(UtmXmlRpc):
 
         total, data = self.get_scenarios_rules()
         self.scenarios_rules = {x['name']: x['id'] for x in data if total}
+
+        total, reverse = self.get_reverseproxy_servers()
+        self.reverse_servers = {x['name']: x['id'] for x in reverse if total}
 
     def init_struct(self):
         """Заполнить служебные структуры данных. Применяется при экспорте и импорте."""
@@ -2128,8 +2134,6 @@ class UTM(UtmXmlRpc):
 
         total, data = self.get_icap_servers()
         self.icap_servers = {x['id']: x['name'] for x in data if total}
-        total, data = self.get_reverseproxy_servers()
-        self.reverse_servers = {x['id']: x['name'] for x in data if total}
 
         tcpudp, icap, reverse = self.get_loadbalancing_rules()
 
@@ -2223,9 +2227,6 @@ class UTM(UtmXmlRpc):
         except FileNotFoundError as err:
             print(f'\t\033[31mСписок балансировщиков reverse-proxy не импортирован!\n\tНе найден файл "data/network_policies/config_loadbalancing_reverse.json" с сохранённой конфигурацией!\033[0;0m')
         else:
-            total, reverse = self.get_reverseproxy_servers()
-            self.reverse_servers = {x['name']: x['id'] for x in reverse if total}
-
             if data:
                 for item in data:
                     try:
@@ -2898,7 +2899,7 @@ class UTM(UtmXmlRpc):
 
     def export_mailsecurity_rules(self):
         """Выгрузить список правил защиты почтового трафика"""
-        print('Выгружаются список "Защита почтового трафика" раздела "Политики безопасности":')
+        print('Выгружается список "Защита почтового трафика" раздела "Политики безопасности":')
         if not os.path.isdir('data/security_policies'):
             os.makedirs('data/security_policies')
 
@@ -3192,7 +3193,7 @@ class UTM(UtmXmlRpc):
 
     def export_dos_rules(self):
         """Выгрузить список правил защиты DoS"""
-        print('Выгружаются список "Правила защиты DoS" раздела "Политики безопасности":')
+        print('Выгружается список "Правила защиты DoS" раздела "Политики безопасности":')
         if not os.path.isdir('data/security_policies'):
             os.makedirs('data/security_policies')
 
@@ -3278,7 +3279,7 @@ class UTM(UtmXmlRpc):
 
     def export_proxyportal_rules(self):
         """Выгрузить список URL-ресурсов веб-портала"""
-        print('Выгружаются список "Веб-портал" раздела "Глобальный портал":')
+        print('Выгружается список "Веб-портал" раздела "Глобальный портал":')
         if not os.path.isdir('data/proxy_portal'):
             os.makedirs('data/proxy_portal')
 
@@ -3356,6 +3357,170 @@ class UTM(UtmXmlRpc):
                 else:
                     list_proxyportal[item['name']] = result
                     print(f'\tURL ресурс "{item["name"]}" добавлен.')
+
+    def export_reverseproxy_servers(self):
+        """Выгрузить список серверов reverse-прокси"""
+        print('Выгружается список "Серверы reverse-прокси" раздела "Глобальный портал":')
+        if not os.path.isdir('data/proxy_portal'):
+            os.makedirs('data/proxy_portal')
+
+        _, data = self.get_reverseproxy_servers()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('guid', None)
+            item.pop('cc', None)
+
+        with open("data/proxy_portal/config_reverseproxy_servers.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Серверы reverse-прокси" выгружен в файл "data/proxy_portal/config_reverseproxy_servers.json".')
+
+    def import_reverseproxy_servers(self):
+        """Импортировать список серверов reverse-прокси"""
+        print('Импорт списка "Серверы reverse-прокси" раздела "Глобальный портал":')
+        try:
+            with open("data/proxy_portal/config_reverseproxy_servers.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Серверы reverse-прокси" не импортирован!\n\tНе найден файл "data/proxy_portal/config_reverseproxy_servers.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет серверов reverse-прокси для импорта.")
+            return
+
+        for item in data:
+            if item['name'] in self.reverse_servers:
+                print(f'\tСервер reverse-прокси "{item["name"]}" уже существует', end= ' - ')
+                err, result = self.update_reverseproxy_servers(self.reverse_servers[item['name']], item)
+                if err == 2:
+                    print("\n", f"\033[31m{result}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            else:
+                err, result = self.add_reverseproxy_servers(item)
+                if err == 2:
+                    print(f"\033[31m{result}\033[0m")
+                else:
+                    self.reverse_servers[item['name']] = result
+                    print(f'\tСервер reverse-прокси "{item["name"]}" добавлен.')
+
+    def export_reverseproxy_rules(self):
+        """Выгрузить список правил reverse-прокси"""
+        print('Выгружается список "Правила reverse-прокси" раздела "Глобальный портал":')
+        if not os.path.isdir('data/proxy_portal'):
+            os.makedirs('data/proxy_portal')
+
+        result = self._server.v2.nlists.list(self._auth_token, 'useragent', 0, 1000, {})
+        self.list_useragent = {x['id']: x['name'] for x in result['items'] if result['count']}
+
+        _, _, reverse = self.get_loadbalancing_rules()
+        self.reverse_rules = {x['id']: x['name'] for x in reverse}
+
+        if self.version.startswith('6'):
+            _, result = self.get_ssl_profiles_list()
+            ssl_profiles = {x['id']: x['name'] for x in result}
+
+        _, result = self.get_certificates_list()
+        ssl_certificates = {x['id']: x['name'] for x in result}
+
+        _, data = self.get_reverseproxy_rules()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('guid', None)
+            item.pop('position_layer', None)
+            item.pop('from', None)
+            item.pop('to', None)
+            self.set_src_zone_and_ips(item)
+            self.set_dst_zone_and_ips(item)
+            self.get_names_users_and_groups(item)
+            if item['certificate_id'] != -1:
+                item['certificate_id'] = ssl_certificates[item['certificate_id']]
+            if self.version.startswith('6'):
+                if item['ssl_profile_id']:
+                    item['ssl_profile_id'] = ssl_profiles[item['ssl_profile_id']]
+            else:
+                item['ssl_profile_id'] = 0
+            for x in item['user_agents']:
+                x[1] = self.list_useragent[x[1]] if x[0] == 'list_id' else x[1]
+            for x in item['servers']:
+                x[1] = self.reverse_servers[x[1]] if x[0] == 'profile' else self.reverse_rules[x[1]]
+
+        with open("data/proxy_portal/config_reverseproxy_rules.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Правила reverse-прокси" выгружен в файл "data/proxy_portal/config_reverseproxy_rules.json".')
+
+    def import_reverseproxy_rules(self):
+        """Импортировать список правил reverse-прокси"""
+        print('Импорт списка "Правила reverse-прокси" раздела "Глобальный портал":')
+        try:
+            with open("data/proxy_portal/config_reverseproxy_rules.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Правила reverse-прокси" не импортирован!\n\tНе найден файл "data/proxy_portal/config_reverseproxy_rules.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет правил reverse-прокси для импорта.")
+            return
+
+        _, _, reverse = self.get_loadbalancing_rules()
+        self.reverse_rules = {x['name']: x['id'] for x in reverse}
+
+        _, result = self.get_certificates_list()
+        ssl_certificates = {x['name']: x['id'] for x in result}
+
+        _, result = self.get_reverseproxy_rules()
+        reverseproxy_rules = {x['name']: x['id'] for x in result}
+
+        for item in data:
+            self.set_src_zone_and_ips(item)
+            self.set_dst_zone_and_ips(item)
+            self.get_guids_users_and_groups(item)
+            try:
+                for x in item['servers']:
+                    x[1] = self.reverse_servers[x[1]] if x[0] == 'profile' else self.reverse_rules[x[1]]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден сервер reverse-прокси или балансировщик {err} для правила "{item["name"]}".\n\tИмпортируйте reverse-прокси или балансировщик и повторите попытку.\033[0m')
+                continue
+            if item['certificate_id'] != -1:
+                try:
+                    item['certificate_id'] = ssl_certificates[item['certificate_id']]
+                except KeyError as err:
+                    print(f'\t\033[33mНе найден сертификат {err} для правила "{item["name"]}".\n\tСоздайте сертификат и повторите попытку.\033[0m')
+                    item['certificate_id'] = -1
+                    item['is_https'] = False
+            if item['ssl_profile_id']:
+                try:
+                    item['ssl_profile_id'] = self.list_ssl_profiles[item['ssl_profile_id']]
+                except KeyError as err:
+                    print(f'\t\033[33mНе найден профиль SSL {err} для правила "{item["name"]}".\n\tЗагрузите профили SSL и повторите попытку.\033[0m')
+                    item['ssl_profile_id'] = 0
+                    item['is_https'] = False
+            else:
+                item['is_https'] = False
+            try:
+                for x in item['user_agents']:
+                    x[1] = self.list_useragent[x[1]] if x[0] == 'list_id' else x[1]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден Useragent {err} для правила "{item["name"]}".\n\tИмпортируйте useragent браузеров и повторите попытку.\033[0m')
+
+            if item['name'] in reverseproxy_rules:
+                print(f'\tПравило reverse-прокси "{item["name"]}" уже существует', end= ' - ')
+                err, result = self.update_reverseproxy_rule(reverseproxy_rules[item['name']], item)
+                if err == 2:
+                    print("\n", f"\033[31m{result}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            else:
+                err, result = self.add_reverseproxy_rule(item)
+                if err == 2:
+                    print(f"\033[31m{result}\033[0m")
+                else:
+                    reverseproxy_rules[item['name']] = result
+                    print(f'\tПравило reverse-прокси "{item["name"]}" добавлено.')
+        print(f'\t\033[33mПроверьте флаг "Использовать HTTPS" во всех импортированных правилах!\n\tЕсли не установлен профиль SSL, выберите нужный.\033[0;0m')
 
 ################### ZONES #####################################
     def export_zones_list(self):
@@ -3959,6 +4124,8 @@ def menu3(utm, mode, section):
             print("\033[33m0   - Выход.\033[0m")
         elif section == 7:
             print('1   - Экспортировать список "Веб-портал" раздела "Глобальный портал".')
+            print('2   - Экспортировать список "Серверы reverse-прокси" раздела "Глобальный портал".')
+            print('3   - Экспортировать список "Правила reverse-прокси" раздела "Глобальный портал".')
             print('\033[36m99  - Экспортировать весь раздел "Глобальный портал".\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -4043,6 +4210,8 @@ def menu3(utm, mode, section):
             print("\033[33m0   - Выход.\033[0m")
         elif section == 7:
             print('1   - Импортировать список "Веб-портал" раздела "Глобальный портал".')
+            print('2   - Импортировать список "Серверы reverse-прокси" раздела "Глобальный портал".')
+            print('3   - Импортировать список "Правила reverse-прокси" раздела "Глобальный портал".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -4261,8 +4430,14 @@ def main():
 
                 elif command == 701:
                     utm.export_proxyportal_rules()
+                elif command == 702:
+                    utm.export_reverseproxy_servers()
+                elif command == 703:
+                    utm.export_reverseproxy_rules()
                 elif command == 799:
                     utm.export_proxyportal_rules()
+                    utm.export_reverseproxy_servers()
+                    utm.export_reverseproxy_rules()
 
                 elif command == 9999:
                     utm.export_morphology_lists()
@@ -4315,6 +4490,8 @@ def main():
                     utm.export_dos_profiles()
                     utm.export_dos_rules()
                     utm.export_proxyportal_rules()
+                    utm.export_reverseproxy_servers()
+                    utm.export_reverseproxy_rules()
             except UtmError as err:
                 print(err)
             except Exception as err:
@@ -4496,8 +4673,14 @@ def main():
 
                     elif command == 701:
                         utm.import_proxyportal_rules()
+                    elif command == 702:
+                        utm.import_reverseproxy_servers()
+                    elif command == 703:
+                        utm.import_reverseproxy_rules()
                     elif command == 799:
                         utm.import_proxyportal_rules()
+                        utm.import_reverseproxy_servers()
+                        utm.import_reverseproxy_rules()
                         
                     elif command == 9999:
                         utm.import_morphology()
@@ -4553,6 +4736,8 @@ def main():
                         utm.import_dos_profiles()
                         utm.import_dos_rules()
                         utm.import_proxyportal_rules()
+                        utm.import_reverseproxy_servers()
+                        utm.import_reverseproxy_rules()
                 except UtmError as err:
                     print(err)
                 except Exception as err:

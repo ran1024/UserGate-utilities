@@ -1522,4 +1522,53 @@ class UtmXmlRpc:
             sys.exit(1)
         return len(result), result
 
+    def add_reverseproxy_servers(self, profile):
+        """Добавить новый сервер reverse-прокси"""
+        try:
+            result = self._server.v1.reverseproxy.profile.add(self._auth_token, profile)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_reverseproxy_servers: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def update_reverseproxy_servers(self, profile_id, profile):
+        """Обновить сервер reverse-прокси"""
+        try:
+            result = self._server.v1.reverseproxy.profile.update(self._auth_token, profile_id, profile)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.update_reverseproxy_servers: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
+    def get_reverseproxy_rules(self):
+        """Получить список правил reverse-прокси"""
+        try:
+            if self.version.startswith('5'):
+                result = self._server.v1.reverseproxy.rules.list(self._auth_token, {})
+                return len(result), result
+            else:
+                result = self._server.v1.reverseproxy.rules.list(self._auth_token, 0, 100, {})
+                return len(result['items']), result['items']
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_reverseproxy_rules: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+
+    def add_reverseproxy_rule(self, rule):
+        """Добавить новое правило reverse-прокси"""
+        try:
+            result = self._server.v1.reverseproxy.rule.add(self._auth_token, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_reverseproxy_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def update_reverseproxy_rule(self, rule_id, rule):
+        """Обновить правило reverse-прокси"""
+        try:
+            result = self._server.v1.reverseproxy.rule.update(self._auth_token, rule_id, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.update_reverseproxy_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
 class UtmError(Exception): pass
