@@ -1571,4 +1571,58 @@ class UtmXmlRpc:
         else:
             return 0, result     # Возвращает True
 
+    def get_vpn_security_profiles(self):
+        """Получить список профилей безопасности VPN"""
+        try:
+            result = self._server.v1.vpn.security.profiles.list(self._auth_token)
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_vpn_security_profiles: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result), result
+
+    def add_vpn_security_profile(self, profile):
+        """Добавить новый профиль безопасности VPN"""
+        try:
+            result = self._server.v1.vpn.security.profile.add(self._auth_token, profile)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_vpn_security_profile: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def update_vpn_security_profile(self, profile_id, profile):
+        """Обновить профиль безопасности VPN"""
+        try:
+            result = self._server.v1.vpn.security.profile.update(self._auth_token, profile_id, profile)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.update_vpn_security_profile: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
+    def get_vpn_networks(self):
+        """Получить список сетей VPN"""
+        try:
+            result = self._server.v1.vpn.tunnels.list(self._auth_token)
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_vpn_networks: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result), result
+
+    def add_vpn_network(self, network):
+        """Добавить новую сеть VPN"""
+        try:
+            result = self._server.v1.vpn.tunnel.add(self._auth_token, network)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_vpn_network: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def update_vpn_network(self, network_id, network):
+        """Обновить сеть VPN"""
+        try:
+            result = self._server.v1.vpn.tunnel.update(self._auth_token, network_id, network)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.update_vpn_network: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
 class UtmError(Exception): pass
