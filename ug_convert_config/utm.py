@@ -1625,4 +1625,61 @@ class UtmXmlRpc:
         else:
             return 0, result     # Возвращает True
 
+    def get_vpn_server_rules(self):
+        """Получить список серверных правил VPN"""
+        try:
+            result = self._server.v1.vpn.server.rules.list(self._auth_token, 0, 100, {})
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_vpn_server_rules: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        if self.version.startswith('5'):
+            return len(result), result
+        else:
+            return len(result['items']), result['items']
+
+    def add_vpn_server_rule(self, rule):
+        """Добавить новое серверное правило VPN"""
+        try:
+            result = self._server.v1.vpn.server.rule.add(self._auth_token, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_vpn_server_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def update_vpn_server_rule(self, rule_id, rule):
+        """Обновить серверное правило VPN"""
+        try:
+            result = self._server.v1.vpn.server.rule.update(self._auth_token, rule_id, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.update_vpn_server_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
+    def get_vpn_client_rules(self):
+        """Получить список клиентских правил VPN"""
+        try:
+            result = self._server.v1.vpn.client.rules.list(self._auth_token)
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_vpn_client_rules: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result), result
+
+    def add_vpn_client_rule(self, rule):
+        """Добавить новое клиентское правило VPN"""
+        try:
+            result = self._server.v1.vpn.client.rule.add(self._auth_token, self.node_name, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_vpn_client_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def update_vpn_client_rule(self, rule_id, rule):
+        """Обновить клиентское правило VPN"""
+        try:
+            result = self._server.v1.vpn.client.rule.update(self._auth_token, self.node_name, rule_id, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.update_vpn_client_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
 class UtmError(Exception): pass

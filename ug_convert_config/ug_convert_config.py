@@ -3627,6 +3627,191 @@ class UTM(UtmXmlRpc):
                     vpn_networks[item['name']] = result
                     print(f'\tСеть VPN "{item["name"]}" добавлена.')
 
+    def export_vpn_server_rules(self):
+        """Выгрузить список серверных правил VPN"""
+        print('Выгружается список "Серверные правила" раздела "VPN":')
+        if not os.path.isdir('data/vpn'):
+            os.makedirs('data/vpn')
+
+        _, result = self.get_vpn_security_profiles()
+        security_profiles = {x['id']: x['name'] for x in result}
+        _, result = self.get_vpn_networks()
+        vpn_networks = {x['id']: x['name'] for x in result}
+
+        _, data = self.get_vpn_server_rules()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('rownumber', None)
+            item.pop('cc', None)
+            item.pop('position_layer', None)
+            if item['src_zones']:
+                item['src_zones'] = [self.zones[x] for x in item['src_zones']]
+            if item['source_ips']:
+                for x in item['source_ips']:
+                    if x[0] == 'list_id':
+                        x[1] = self.list_IP[x[1]]
+                    elif x[0] == 'urllist_id':
+                        x[1] = self.list_url[x[1]]
+            if 'dst_ips' in item and item['dst_ips']:
+                for x in item['dst_ips']:
+                    if x[0] == 'list_id':
+                        x[1] = self.list_IP[x[1]]
+                    elif x[0] == 'urllist_id':
+                        x[1] = self.list_url[x[1]]
+            self.get_names_users_and_groups(item)
+            item['security_profile_id'] = security_profiles[item['security_profile_id']]
+            item['tunnel_id'] = vpn_networks[item['tunnel_id']]
+            item['auth_profile_id'] = self.auth_profiles[item['auth_profile_id']]
+
+        with open("data/vpn/config_vpn_server_rules.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Серверные правила" выгружен в файл "data/vpn/config_vpn_server_rules.json".')
+
+    def import_vpn_server_rules(self):
+        """Импортировать список серверных правил VPN"""
+        print('Импорт списка "Серверные правила" раздела "VPN":')
+        try:
+            with open("data/vpn/config_vpn_server_rules.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Серверные правила" не импортирован!\n\tНе найден файл "data/vpn/config_vpn_server_rules.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет серверных правил VPN для импорта.")
+            return
+
+        _, result = self.get_vpn_security_profiles()
+        vpn_security_profiles = {x['name']: x['id'] for x in result}
+        _, result = self.get_vpn_networks()
+        vpn_networks = {x['name']: x['id'] for x in result}
+        _, result = self.get_vpn_server_rules()
+        vpn_server_rules = {x['name']: x['id'] for x in result}
+
+        for item in data:
+            if item['src_zones']:
+                try:
+                    item['src_zones'] = [self.zones[x] for x in item['src_zones']]
+                except KeyError as err:
+                    print(f'\t\033[33mИсходная зона {err} для правила "{item["name"]}" не найдена.\n\tЗагрузите список зон и повторите попытку.\033[0m')
+                    item['src_zones'] = []
+            if item['source_ips']:
+                try:
+                    for x in item['source_ips']:
+                        if x[0] == 'list_id':
+                            x[1] = self.list_IP[x[1]]
+                        elif x[0] == 'urllist_id':
+                            x[1] = self.list_url[x[1]]
+                except KeyError as err:
+                    print(f'\t\033[33mНе найден адрес источника {err} для правила "{item["name"]}".\n\tЗагрузите списки IP-адресов и URL и повторите попытку.\033[0m')
+                    item['source_ips'] = []
+            if 'dst_ips' in item and item['dst_ips']:
+                try:
+                    for x in item['dst_ips']:
+                        if x[0] == 'list_id':
+                            x[1] = self.list_IP[x[1]]
+                        elif x[0] == 'urllist_id':
+                            x[1] = self.list_url[x[1]]
+                except KeyError as err:
+                    print(f'\t\033[33mНе найден адрес назначения {err} для правила "{item["name"]}".\n\tЗагрузите списки IP-адресов и URL и повторите попытку.\033[0m')
+                    item['dst_ips'] = []
+            self.get_guids_users_and_groups(item)
+            try:
+                item['security_profile_id'] = vpn_security_profiles[item['security_profile_id']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден профиль безопасности VPN {err} для правила "{item["name"]}".\n\tЗагрузите профили безопасности VPN и повторите попытку.\033[0m')
+                item['security_profile_id'] = ""
+            try:
+                item['tunnel_id'] = vpn_networks[item['tunnel_id']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найдена сеть VPN {err} для правила "{item["name"]}".\n\tЗагрузите сети VPN и повторите попытку.\033[0m')
+                item['tunnel_id'] = ""
+            try:
+                item['auth_profile_id'] = self.auth_profiles[item['auth_profile_id']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден профиль авторизации {err} для правила "{item["name"]}".\n\tЗагрузите профили авторизации и повторите попытку.\033[0m')
+                item['auth_profile_id'] = ""
+
+            if item['name'] in vpn_server_rules:
+                print(f'\tСерверное правило VPN "{item["name"]}" уже существует', end= ' - ')
+                err, result = self.update_vpn_server_rule(vpn_server_rules[item['name']], item)
+                if err == 2:
+                    print("\n", f"\033[31m{result}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            else:
+                err, result = self.add_vpn_server_rule(item)
+                if err == 2:
+                    print(f"\033[31m{result}\033[0m")
+                else:
+                    vpn_server_rules[item['name']] = result
+                    print(f'\tСерверное правило VPN "{item["name"]}" добавлено.')
+
+    def export_vpn_client_rules(self):
+        """Выгрузить список клиентских правил VPN"""
+        print('Выгружается список "Клиентские правила" раздела "VPN":')
+        if not os.path.isdir('data/vpn'):
+            os.makedirs('data/vpn')
+
+        _, result = self.get_vpn_security_profiles()
+        vpn_security_profiles = {x['id']: x['name'] for x in result}
+
+        _, data = self.get_vpn_client_rules()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('node_name', None)
+            item.pop('connection_time', None)
+            item.pop('cc', None)
+            item['security_profile_id'] = vpn_security_profiles[item['security_profile_id']]
+
+        with open("data/vpn/config_vpn_client_rules.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Клиентские правила" выгружен в файл "data/vpn/config_vpn_client_rules.json".')
+
+    def import_vpn_client_rules(self):
+        """Импортировать список клиентских правил VPN"""
+        print('Импорт списка "Клиентские правила" раздела "VPN":')
+        try:
+            with open("data/vpn/config_vpn_client_rules.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Клиентские правила" не импортирован!\n\tНе найден файл "data/vpn/config_vpn_client_rules.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет клиентских правил VPN для импорта.")
+            return
+
+        _, result = self.get_vpn_security_profiles()
+        vpn_security_profiles = {x['name']: x['id'] for x in result}
+        _, result = self.get_vpn_client_rules()
+        vpn_client_rules = {x['name']: x['id'] for x in result}
+
+        for item in data:
+            try:
+                item['security_profile_id'] = vpn_security_profiles[item['security_profile_id']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден профиль безопасности VPN {err} для правила "{item["name"]}".\n\tЗагрузите профили безопасности VPN и повторите попытку.\033[0m')
+                item['security_profile_id'] = ""
+
+            if item['name'] in vpn_client_rules:
+                print(f'\tКлиентское правило VPN "{item["name"]}" уже существует', end= ' - ')
+# Ошибка API node_name - включить когда будет исправлено.
+#                err, result = self.update_vpn_client_rule(vpn_client_rules[item['name']], item)
+#                if err == 2:
+#                    print("\n", f"\033[31m{result}\033[0m")
+#                else:
+                print("\033[32mUpdated!\033[0;0m")
+            else:
+                err, result = self.add_vpn_client_rule(item)
+                if err == 2:
+                    print(f"\033[31m{result}\033[0m")
+                else:
+                    vpn_client_rules[item['name']] = result
+                    print(f'\tКлиентское правило VPN "{item["name"]}" добавлено.')
+
 ################### ZONES #####################################
     def export_zones_list(self):
         """Выгрузить список зон"""
@@ -4238,6 +4423,8 @@ def menu3(utm, mode, section):
         elif section == 8:
             print('1   - Экспортировать список "Профили безопасности VPN" раздела "VPN".')
             print('2   - Экспортировать список "Сети VPN" раздела "VPN".')
+            print('3   - Экспортировать список "Серверные правила" раздела "VPN".')
+            print('4   - Экспортировать список "Клиентские правила" раздела "VPN".')
             print('\033[36m99  - Экспортировать весь раздел "VPN".\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -4330,6 +4517,8 @@ def menu3(utm, mode, section):
         elif section == 8:
             print('1   - Импортировать список "Профили безопасности VPN" раздела "VPN".')
             print('2   - Импортировать список "Сети VPN" раздела "VPN".')
+            print('3   - Импортировать список "Серверные правила" раздела "VPN".')
+            print('4   - Импортировать список "Клиентские правила" раздела "VPN".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -4561,9 +4750,15 @@ def main():
                     utm.export_vpn_security_profiles()
                 elif command == 802:
                     utm.export_vpn_networks()
+                elif command == 803:
+                    utm.export_vpn_server_rules()
+                elif command == 804:
+                    utm.export_vpn_client_rules()
                 elif command == 899:
                     utm.export_vpn_security_profiles()
                     utm.export_vpn_networks()
+                    utm.export_vpn_server_rules()
+                    utm.export_vpn_client_rules()
 
                 elif command == 9999:
                     utm.export_morphology_lists()
@@ -4620,6 +4815,8 @@ def main():
                     utm.export_reverseproxy_rules()
                     utm.export_vpn_security_profiles()
                     utm.export_vpn_networks()
+                    utm.export_vpn_server_rules()
+                    utm.export_vpn_client_rules()
             except UtmError as err:
                 print(err)
             except Exception as err:
@@ -4814,9 +5011,15 @@ def main():
                         utm.import_vpn_security_profiles()
                     elif command == 802:
                         utm.import_vpn_networks()
+                    elif command == 803:
+                        utm.import_vpn_server_rules()
+                    elif command == 804:
+                        utm.import_vpn_client_rules()
                     elif command == 899:
                         utm.import_vpn_security_profiles()
                         utm.import_vpn_networks()
+                        utm.import_vpn_server_rules()
+                        utm.import_vpn_client_rules()
                         
                     elif command == 9999:
                         utm.import_morphology()
@@ -4876,6 +5079,8 @@ def main():
                         utm.import_reverseproxy_rules()
                         utm.import_vpn_security_profiles()
                         utm.import_vpn_networks()
+                        utm.import_vpn_server_rules()
+                        utm.import_vpn_client_rules()
                 except UtmError as err:
                     print(err)
                 except Exception as err:
