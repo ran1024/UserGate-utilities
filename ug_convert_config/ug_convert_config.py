@@ -1213,20 +1213,57 @@ class UTM(UtmXmlRpc):
                 print(f'\tПрофиль SSL "{item["name"]}" добавлен.')
 
 ################### Настройки ################################################
-    def export_certivicates_list(self):
-        """Выгрузить список сертификатов"""
-        print('Выгружаются список "Сертификаты" раздела "UserGate":')
-        if not os.path.isdir('data/usergate'):
-            os.makedirs('data/usergate')
+    def export_ui(self):
+        """Выгрузить настройки интерфейса"""
+        print('Выгружаются "Настройки интерфейса" веб-консоли раздела "Настройки":')
+        if not os.path.isdir('data/settings'):
+            os.makedirs('data/settings')
 
-        _, data = self.get_certificates_list()
+        params = ['ui_timezone', 'ui_language', 'web_console_ssl_profile_id', 'response_pages_ssl_profile_id']
+        _, data = self.get_settings_params(params)
 
-        for item in data:
-            item.pop('id', None)
-            item.pop('cc', None)
-        with open("data/usergate/certivicates_list.json", "w") as fh:
+        if self.version.startswith('6'):
+            _, result = self.get_ssl_profiles_list()
+            ssl_profiles = {x['id']: x['name'] for x in result}
+            data['web_console_ssl_profile_id'] = ssl_profiles[data['web_console_ssl_profile_id']]
+            data['response_pages_ssl_profile_id'] = ssl_profiles[data['response_pages_ssl_profile_id']]
+
+        with open("data/settings/config_settings_ui.json", "w") as fh:
             json.dump(data, fh, indent=4, ensure_ascii=False)
-        print(f'\tСписок "Сертификаты" выгружен в файл "data/usergate/certivicates_list.json".')
+        print(f'\t"Настройки интерфейса" веб-консоли выгружены в файл "data/settings/config_settings_ui.json".')
+
+    def import_ui(self):
+        """Импортировать настройки интерфейса"""
+        print('Импорт "Настройки интерфейса" веб-консоли раздела "Настройки":')
+        try:
+            with open("data/settings/config_settings_ui.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Настройки интерфейса" не импортирован!\n\tНе найден файл "data/settings/config_settings_ui.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        params = {
+            'ui_timezone': 'Часовой пояс',
+            'ui_language': 'Язык интерфейса по умолчанию',
+            'web_console_ssl_profile_id': 'Профиль SSL для веб-консоли',
+            'response_pages_ssl_profile_id': 'Профиль SSL для страниц блокировки/авторизации',
+        }
+
+        if self.version.startswith('6'):
+            try:
+                data['web_console_ssl_profile_id'] = self.list_ssl_profiles[data['web_console_ssl_profile_id']]
+                data['response_pages_ssl_profile_id'] = self.list_ssl_profiles[data['response_pages_ssl_profile_id']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден профиль SSL {err}".\n\tЗагрузите профили SSL и повторите попытку.\033[0m')
+                data.pop('web_console_ssl_profile_id')
+                data.pop('response_pages_ssl_profile_id')
+
+        for key, value in data.items():
+            err, result = self.set_settings_param(key, value)
+            if err == 2:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                print(f'\t{params[key]} - \033[32mUpdated!\033[0m.')
 
     def export_ntp(self):
         """Выгрузить настройки NTP"""
@@ -1298,7 +1335,7 @@ class UTM(UtmXmlRpc):
         if err == 2:
             print(f"\033[31m{result}\033[0m")
         else:
-            print(f'\tHTTP(S)-прокси порт обновлён.')
+            print(f'\tHTTP(S)-прокси порт - \033[32mUpdated!\033[0m.')
 
         try:
             with open("data/settings/config_settings.json", "r") as fh:
@@ -1307,12 +1344,23 @@ class UTM(UtmXmlRpc):
             print(f'\t\033[31mНастройки кэширования HTTP и модулей не импортированы!\n\tНе найден файл "data/settings/config_settings.json" с сохранённой конфигурацией!\033[0;0m')
             return
 
+        params = {
+            'auth_captive': 'Домен Auth captive-портала',
+            'logout_captive': 'Домен Logout captive-портала',
+            'block_page_domain': 'Домен страницы блокировки',
+            'ftpclient_captive': 'FTP поверх HTTP домен',
+            'ftp_proxy_enabled': 'FTP поверх HTTP',
+            'http_cache_mode': 'Режим кэширования',
+            'http_cache_docsize_max': 'Мксимальный размер объекта кэширования http',
+            'http_cache_precache_size': 'Размер RAM-кэша',
+        }
+
         for key, value in settings.items():
             err, result = self.set_settings_param(key, value)
             if err == 2:
                 print(f"\033[31m{result}\033[0m")
             else:
-                print(f'\tПараметр {key} обновлён.')
+                print(f'\t{params[key]} - \033[32mUpdated!\033[0m')
 
         try:
             with open("data/settings/config_proxy_exceptions.json", "r") as fh:
@@ -1324,10 +1372,12 @@ class UTM(UtmXmlRpc):
         _, data = self.get_nlist_list('httpcwl')
         for item in settings:
             err, result = self.add_nlist_item(data['id'], item)
-            if err != 0:
+            if err == 2:
                 print(f'\t{result}')
+            elif err == 1:
+                print(f'\tИсключение кеширования \033[36m"{item["value"]}"\033[0m уже существует.')
             else:
-                print(f'\tВ исключения кеширования добавлен URL: "{item["value"]}".')
+                print(f'\tВ исключения кеширования добавлен URL \033[36m"{item["value"]}"\033[0m.')
 
     def export_proxy_portal(self):
         """Выгрузить настройки веб-портала"""
@@ -1343,6 +1393,70 @@ class UTM(UtmXmlRpc):
         with open("data/settings/config_proxy_portal.json", "w") as fh:
             json.dump(data, fh, indent=4, ensure_ascii=False)
         print(f'\tНастройки Веб-портала выгружены в файл "data/settings/config_proxy_portal.json".')
+
+    def export_admin_profiles_list(self):
+        """Выгрузить список профилей администраторов"""
+        print('Выгружаются список "Профили администраторов" раздела "UserGate/Администраторы":')
+        if not os.path.isdir('data/usergate'):
+            os.makedirs('data/usergate')
+
+        _, data = self.get_admin_profiles_list()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('cc', None)
+
+        with open("data/usergate/admin_profiles_list.json", "w") as fh:
+            json.dump(data, fh, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Профили администраторов" выгружен в файл "data/usergate/admin_profiles_list.json".')
+
+    def import_admin_profiles(self):
+        """Импортировать список профилей администраторов"""
+        print('Импорт списка "Профили администраторов" раздела "UserGate/Администраторы":')
+        try:
+            with open("data/usergate/admin_profiles_list.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Профили администраторов" не импортирован!\n\tНе найден файл "data/usergate/admin_profiles_list.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет профилей администраторов для импорта.")
+            return
+
+        _, result = self.get_admin_profiles_list()
+        admin_profiles = {x['name']: x['id'] for x in result}
+
+        for item in data:
+            if item['name'] in admin_profiles:
+                print(f'\tПрофиль администраторов "{item["name"]}" уже существует', end= ' - ')
+                err, result = self.update_admin_profile(admin_profiles[item['name']], item)
+                if err == 2:
+                    print("\n", f"\033[31m{result}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            else:
+                err, result = self.add_admin_profile(item)
+                if err == 2:
+                    print(f"\033[31m{result}\033[0m")
+                else:
+                    admin_profiles[item['name']] = result
+                    print(f'\tПрофиль администраторов "{item["name"]}" добавлен.')
+
+    def export_certivicates_list(self):
+        """Выгрузить список сертификатов"""
+        print('Выгружаются список "Сертификаты" раздела "UserGate":')
+        if not os.path.isdir('data/usergate'):
+            os.makedirs('data/usergate')
+
+        _, data = self.get_certificates_list()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('cc', None)
+        with open("data/usergate/certivicates_list.json", "w") as fh:
+            json.dump(data, fh, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Сертификаты" выгружен в файл "data/usergate/certivicates_list.json".')
 
 ################### Пользователи и устройства ################################
     def export_groups_lists(self):
@@ -3761,7 +3875,7 @@ class UTM(UtmXmlRpc):
 
         for item in data:
             item.pop('id', None)
-            item.pop('node_name', None)
+#            item.pop('node_name', None)
             item.pop('connection_time', None)
             item.pop('cc', None)
             item['security_profile_id'] = vpn_security_profiles[item['security_profile_id']]
@@ -4369,10 +4483,12 @@ def menu3(utm, mode, section):
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
         elif section == 3:
-            print('1   - Экспортировать настройки NTP раздела "Настройки".')
-            print('2   - Экспортировать настройки Модулей и кэширования HTTP раздела "Настройки".')
-            print('3   - Экспортировать настройки Веб-портала раздела "Настройки".')
-            print('4   - Экспортировать список "Сертификаты" раздела "UserGate".')
+            print('1   - Экспортировать настройки интерфейса веб-консоли раздела "UserGate/Настройки".')
+            print('2   - Экспортировать настройки NTP раздела "UserGate/Настройки".')
+            print('3   - Экспортировать настройки Модулей и кэширования HTTP раздела "UserGate/Настройки".')
+            print('4   - Экспортировать настройки Веб-портала раздела "UserGate/Настройки".')
+            print('5   - Экспортировать список "Профили администраторов" раздела "UserGate/Администраторы".')
+            print('6   - Экспортировать список "Сертификаты" раздела "UserGate".')
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -4461,9 +4577,11 @@ def menu3(utm, mode, section):
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
         elif section == 3:
-            print("1   - Импортировать настройки NTP.")
-            print('2   - Импортировать настройки Модулей и кэширования HTTP раздела "Настройки".')
-#            print('3   - Импортировать настройки Веб-портала раздела "Настройки".')
+            print('1   - Импортировать настройки интерфейса веб-консоли раздела "UserGate/Настройки".')
+            print('2   - Импортировать настройки NTP раздела "UserGate/Настройки".')
+            print('3   - Импортировать настройки Модулей и кэширования HTTP раздела "UserGate/Настройки".')
+#            print('4   - Импортировать настройки Веб-портала раздела "UserGate/Настройки".')
+            print('5   - Импортировать список "Профили администраторов" раздела "UserGate/Администраторы".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -4644,17 +4762,23 @@ def main():
                     utm.export_dns_config()
 
                 elif command == 301:
-                    utm.export_ntp()
+                    utm.export_ui()
                 elif command == 302:
-                    utm.export_settings()
+                    utm.export_ntp()
                 elif command == 303:
-                    utm.export_proxy_portal()
+                    utm.export_settings()
                 elif command == 304:
+                    utm.export_proxy_portal()
+                elif command == 305:
+                    utm.export_admin_profiles_list()
+                elif command == 306:
                     utm.export_certivicates_list()
                 elif command == 399:
+                    utm.export_ui()
                     utm.export_ntp()
                     utm.export_settings()
                     utm.export_proxy_portal()
+                    utm.export_admin_profiles_list()
                     utm.export_certivicates_list()
 
                 elif command == 401:
@@ -4782,9 +4906,11 @@ def main():
                     utm.export_zones_list()
                     utm.export_dhcp_subnets()
                     utm.export_dns_config()
+                    utm.export_ui()
                     utm.export_ntp()
                     utm.export_settings()
                     utm.export_proxy_portal()
+                    utm.export_admin_profiles_list()
                     utm.export_certivicates_list()
                     utm.export_groups_lists()
                     utm.export_users_lists()
@@ -4897,12 +5023,18 @@ def main():
                         utm.import_dns_config()
 
                     elif command == 301:
-                        utm.import_ntp()
+                        utm.import_ui()
                     elif command == 302:
+                        utm.import_ntp()
+                    elif command == 303:
                         utm.import_settings()
+                    elif command == 305:
+                        utm.import_admin_profiles()
                     elif command == 399:
+                        utm.import_ui()
                         utm.import_ntp()
                         utm.import_settings()
+                        utm.import_admin_profiles()
 
                     elif command == 401:
                         utm.import_groups_list()
@@ -5043,8 +5175,10 @@ def main():
                         utm.import_zones()
                         utm.import_dhcp_subnets()
                         utm.import_dns_config()
+                        utm.import_ui()
                         utm.import_ntp()
                         utm.import_settings()
+                        utm.import_admin_profiles()
                         utm.import_groups_list()
                         utm.import_users_list()
                         utm.import_2fa_profiles()

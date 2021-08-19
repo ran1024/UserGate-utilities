@@ -52,15 +52,6 @@ class UtmXmlRpc:
                 print('Сессия завершилась по таймауту.')
 
 ################################### Settings ####################################
-    def get_certificates_list(self):
-        """Получить список сертификатов"""
-        try:
-            result = self._server.v2.settings.certificates.list(self._auth_token)
-        except rpc.Fault as err:
-            print(f"\tОшибка utm.get_certificates_list: [{err.faultCode}] — {err.faultString}")
-            sys.exit(1)
-        return len(result), result
-
     def get_ntp_config(self):
         """Получить конфигурацию NTP"""
         try:
@@ -124,6 +115,42 @@ class UtmXmlRpc:
             print(f"\tОшибка utm.get_proxyportal_config: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
         return 0, result
+
+    def get_admin_profiles_list(self):
+        """Получить список профилей администраторов"""
+        try:
+            result = self._server.v2.core.administrator.profiles.list(self._auth_token)
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_admin_profiles_list: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result), result
+
+    def add_admin_profile(self, profile):
+        """Добавить новый профиль администраторов"""
+        try:
+            result = self._server.v2.core.administrator.profile.add(self._auth_token, profile)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_admin_profile: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def update_admin_profile(self, profile_id, profile):
+        """Обновить профиль администраторов"""
+        try:
+            result = self._server.v2.core.administrator.profile.update(self._auth_token, profile_id, profile)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.update_admin_profile: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
+    def get_certificates_list(self):
+        """Получить список сертификатов"""
+        try:
+            result = self._server.v2.settings.certificates.list(self._auth_token)
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_certificates_list: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result), result
 
 ##################################### ZONES #####################################
     def get_zones_list(self):
@@ -262,22 +289,31 @@ class UtmXmlRpc:
         array = []
         try:
             result = self._server.v2.nlists.list(self._auth_token, list_type, 0, 1000, {})
+        except rpc.Fault as err:
+            print(f"\tОшибка-1 utm.get_nlist_list: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+
+        try:
             for item in result['items']:
                 if item['editable']:
                     if list_type == 'ipspolicy' and self.version.startswith('5'):
                         content = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 1000, {}, [])
                     else:
                         content = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 1000, '', [])
+
                     if list_type == 'timerestrictiongroup' and self.version.startswith('5'):
                         item['content'] = [x['value'] for x in content['items']]
                     elif list_type == 'httpcwl':
-                        array = {'id': item['id'], 'content': [x for x in content['items']]}
+                        array = {'id': item['id'], 'content': content['items']}
                         break
                     else:
-                        item['content'] = [x for x in content['items']]
+#                        item['content'] = [x for x in content['items']]
+                        item['content'] = content['items']
+
                     array.append(item)
+
         except rpc.Fault as err:
-            print(f"Ошибка utm.get_namedlist_list: [{err.faultCode}] — {err.faultString}")
+            print(f"\tОшибка-2 utm.get_nlist_list: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
         return len(array), array
 
@@ -291,7 +327,7 @@ class UtmXmlRpc:
             if err.faultCode == 409:
                 return 1, f'\tСписок: "{named_list["name"]}" уже существует. Проверка параметров...'
             else:
-                return 2, f"\tОшибка utm.add_namedlist: [{err.faultCode}] — {err.faultString}"
+                return 2, f"\tОшибка utm.add_nlist: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result
 
@@ -305,7 +341,7 @@ class UtmXmlRpc:
             if err.faultCode == 409:
                 return 1, f"\tСписок: {named_list['name']} - нет отличающихся параметров для изменения."
             else:
-                return 2, f"\tОшибка utm.update_namedlist: [{err.faultCode}] — {err.faultString}"
+                return 2, f"\tОшибка utm.update_nlist: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result
 
