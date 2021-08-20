@@ -116,6 +116,14 @@ class UtmXmlRpc:
             sys.exit(1)
         return 0, result
 
+    def set_proxyportal_config(self, params):
+        """Изменить настройки веб-портала"""
+        try:
+            result = self._server.v1.proxyportal.config.set(self._auth_token, params)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.set_proxyportal_config: [{err.faultCode}] — {err.faultString}"
+        return 0, result
+
     def get_admin_profiles_list(self):
         """Получить список профилей администраторов"""
         try:
@@ -142,6 +150,23 @@ class UtmXmlRpc:
             return 2, f"\tОшибка utm.update_admin_profile: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result     # Возвращает True
+
+    def get_admin_config(self):
+        """Получить список настроек пароля администраторов"""
+        try:
+            result = self._server.v2.core.administrator.config.get(self._auth_token)
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_admin_config: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result), result
+
+    def set_admin_config(self, params):
+        """Изменить настройки пароля администраторов"""
+        try:
+            result = self._server.v2.core.administrator.config.set(self._auth_token, params)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.set_admin_config: [{err.faultCode}] — {err.faultString}"
+        return 0, result
 
     def get_certificates_list(self):
         """Получить список сертификатов"""
