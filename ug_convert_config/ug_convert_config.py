@@ -1524,6 +1524,64 @@ class UTM(UtmXmlRpc):
         else:
             print(f'\tНастройки паролей для администраторов - \033[32mUpdated!\033[0m.')
 
+    def export_admins_list(self):
+        """Выгрузить список администраторов"""
+        print('Выгружается список администраторов раздела "UserGate/Администраторы":')
+        if not os.path.isdir('data/usergate'):
+            os.makedirs('data/usergate')
+
+        _, result = self.get_admin_profiles_list()
+        admin_profiles = {x['id']: x['name'] for x in result}
+
+        _, data = self.get_admin_list()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('guid', None)
+            item.pop('cc', None)
+            item['profile_id'] = admin_profiles.get(item['profile_id'], -1)
+
+        with open("data/usergate/admins_list.json", "w") as fh:
+            json.dump(data, fh, indent=4, ensure_ascii=False)
+        print(f'\tСписок администраторов выгружен в файл "data/usergate/admins_list.json".')
+
+    def import_admins(self):
+        """Импортировать список администраторов UTM"""
+        print('Импорт списка "Администраторы" раздела "UserGate/Администраторы":')
+        try:
+            with open("data/usergate/admins_list.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Администраторы" не импортирован!\n\tНе найден файл "data/usergate/admins_list.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        _, result = self.get_admin_profiles_list()
+        admin_profiles = {x['name']: x['id'] for x in result}
+        _, result = self.get_admin_list()
+        admins_list = {x['login']: x['id'] for x in result}
+
+        for item in data:
+            item['profile_id'] = admin_profiles.get(item['profile_id'], -1)
+
+            if item['login'] in admins_list:
+                print(f'\tАдминистратор "{item["login"]}" уже существует', end= ' - ')
+                err, result = self.update_admin(admins_list[item['login']], item)
+                if err == 2:
+                    print("\n", f"\033[31m{result}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            else:
+                if item['type'] == 'local':
+                    item['password'] = 'utm'
+                err, result = self.add_admin(item)
+                if err == 2:
+                    print(f"\033[31m{result}\033[0m")
+                else:
+                    admins_list[item['login']] = result
+                    print(f'\tАдминистратор "{item["login"]}" добавлен.')
+                    if item['type'] == 'local':
+                        print(f'\t  \033[36mЛокальному администратору "{item["login"]}" установлен пароль "utm". Поменяйте пароль по умолчанию!\033[0m')
+
     def export_certivicates_list(self):
         """Выгрузить список сертификатов"""
         print('Выгружаются список "Сертификаты" раздела "UserGate":')
@@ -4569,7 +4627,8 @@ def menu3(utm, mode, section):
             print('3   - Экспортировать настройки Модулей и кэширования HTTP раздела "UserGate/Настройки".')
             print('4   - Экспортировать настройки Веб-портала раздела "UserGate/Настройки".')
             print('5   - Экспортировать список "Профили администраторов" раздела "UserGate/Администраторы".')
-            print('6   - Экспортировать настройки паролей администраторов" раздела "UserGate/Администраторы".')
+            print('6   - Экспортировать настройки паролей администраторов раздела "UserGate/Администраторы".')
+            print('7   - Экспортировать список администраторов раздела "UserGate/Администраторы".')
             print('8   - Экспортировать список "Сертификаты" раздела "UserGate".')
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
@@ -4664,7 +4723,8 @@ def menu3(utm, mode, section):
             print('3   - Импортировать настройки Модулей и кэширования HTTP раздела "UserGate/Настройки".')
             print('4   - Импортировать настройки Веб-портала раздела "UserGate/Настройки".')
             print('5   - Импортировать список "Профили администраторов" раздела "UserGate/Администраторы".')
-            print('6   - Импортировать настройки паролей администраторов" раздела "UserGate/Администраторы".')
+            print('6   - Импортировать настройки паролей администраторов раздела "UserGate/Администраторы".')
+            print('7   - Импортировать список администраторов раздела "UserGate/Администраторы".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -4856,6 +4916,8 @@ def main():
                     utm.export_admin_profiles_list()
                 elif command == 306:
                     utm.export_admin_config()
+                elif command == 307:
+                    utm.export_admins_list()
                 elif command == 308:
                     utm.export_certivicates_list()
                 elif command == 399:
@@ -4865,6 +4927,7 @@ def main():
                     utm.export_proxy_portal()
                     utm.export_admin_profiles_list()
                     utm.export_admin_config()
+                    utm.export_admins_list()
                     utm.export_certivicates_list()
 
                 elif command == 401:
@@ -4998,6 +5061,7 @@ def main():
                     utm.export_proxy_portal()
                     utm.export_admin_profiles_list()
                     utm.export_admin_config()
+                    utm.export_admins_list()
                     utm.export_certivicates_list()
                     utm.export_groups_lists()
                     utm.export_users_lists()
@@ -5121,6 +5185,8 @@ def main():
                         utm.import_admin_profiles()
                     elif command == 306:
                         utm.import_admin_config()
+                    elif command == 307:
+                        utm.import_admins()
                     elif command == 399:
                         utm.import_ui()
                         utm.import_ntp()
@@ -5128,6 +5194,7 @@ def main():
                         utm.import_proxy_portal()
                         utm.import_admin_profiles()
                         utm.import_admin_config()
+                        utm.import_admins()
 
                     elif command == 401:
                         utm.import_groups_list()
@@ -5274,6 +5341,7 @@ def main():
                         utm.import_proxy_portal()
                         utm.import_admin_profiles()
                         utm.import_admin_config()
+                        utm.import_admins()
                         utm.import_groups_list()
                         utm.import_users_list()
                         utm.import_2fa_profiles()

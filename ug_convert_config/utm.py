@@ -168,6 +168,33 @@ class UtmXmlRpc:
             return 2, f"\tОшибка utm.set_admin_config: [{err.faultCode}] — {err.faultString}"
         return 0, result
 
+    def get_admin_list(self):
+        """Получить список администраторов"""
+        try:
+            result = self._server.v2.core.administrator.list(self._auth_token, {})
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_admin_list: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result), result
+
+    def add_admin(self, admin):
+        """Добавить нового администратора"""
+        try:
+            result = self._server.v2.core.administrator.add(self._auth_token, admin)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_admin: [{err.faultCode}] — {err.faultString}: {admin['login']}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def update_admin(self, admin_id, admin):
+        """Обновить администратора"""
+        try:
+            result = self._server.v2.core.administrator.update(self._auth_token, admin_id, admin)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.update_admin: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
+
     def get_certificates_list(self):
         """Получить список сертификатов"""
         try:
@@ -1728,7 +1755,10 @@ class UtmXmlRpc:
     def add_vpn_client_rule(self, rule):
         """Добавить новое клиентское правило VPN"""
         try:
-            result = self._server.v1.vpn.client.rule.add(self._auth_token, self.node_name, rule)
+            if self.version.startswith('6.2'):
+                result = self._server.v1.vpn.client.rule.add(self._auth_token, rule)
+            else:
+                result = self._server.v1.vpn.client.rule.add(self._auth_token, self.node_name, rule)
         except rpc.Fault as err:
             return 2, f"\tОшибка utm.add_vpn_client_rule: [{err.faultCode}] — {err.faultString}"
         else:
@@ -1737,7 +1767,10 @@ class UtmXmlRpc:
     def update_vpn_client_rule(self, rule_id, rule):
         """Обновить клиентское правило VPN"""
         try:
-            result = self._server.v1.vpn.client.rule.update(self._auth_token, self.node_name, rule_id, rule)
+            if self.version.startswith('6.2'):
+                result = self._server.v1.vpn.client.rule.update(self._auth_token, rule_id, rule)
+            else:
+                result = self._server.v1.vpn.client.rule.update(self._auth_token, self.node_name, rule_id, rule)
         except rpc.Fault as err:
             return 2, f"\tОшибка utm.update_vpn_client_rule: [{err.faultCode}] — {err.faultString}"
         else:
