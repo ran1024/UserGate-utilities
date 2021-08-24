@@ -272,6 +272,23 @@ class UtmXmlRpc:
         else:
             return 0, result     # Возвращает True
 
+    def get_gateway_failover(self):
+        """Получить настройки проверки сети шлюзов"""
+        try:
+            result = self._server.v1.netmanager.failover.config.get(self._auth_token)
+        except rpc.Fault as err:
+            print(f"Ошибка get_gateway_failover: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return 0, result
+
+    def set_gateway_failover(self, params):
+        """Изменить настройки проверки сети шлюзов"""
+        try:
+            result = self._server.v1.netmanager.failover.config.set(self._auth_token, params)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.set_admin_config: [{err.faultCode}] — {err.faultString}"
+        return 0, result
+
 ################################## Interfaces ###################################
     def get_interfaces_list(self):
         """Получить список сетевых интерфейсов"""

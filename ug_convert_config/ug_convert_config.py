@@ -4160,6 +4160,34 @@ class UTM(UtmXmlRpc):
                     gateways_list[item['name']] = result
                     print(f'\tШлюз "{item["name"]}" добавлен.')
 
+    def export_gateway_failover(self):
+        """Выгрузить настройки проверки сети шлюзов"""
+        print('Выгружаются настройки "Проверка сети" раздела "Сеть/Шлюзы":')
+        if not os.path.isdir('data/network'):
+            os.makedirs('data/network')
+
+        _, data = self.get_gateway_failover()
+
+        with open("data/network/config_gateway_failover.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tНастройки "Проверка сети" выгружены в файл "data/network/config_gateway_failover.json".')
+
+    def import_gateway_failover(self):
+        """Импортировать список шлюзов"""
+        print('Импорт настроек "Проверка сети" раздела "Сеть/Шлюзы":')
+        try:
+            with open("data/network/config_gateway_failover.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mНастройки "Проверка сети" не импортированы!\n\tНе найден файл "data/network/config_gateway_failover.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        err, result = self.set_gateway_failover(data)
+        if err == 2:
+            print(f"\033[31m{result}\033[0m")
+        else:
+            print(f'\tНастройки проверки сети обновлены.')
+
 ################### INTERFACES #################################
     def export_interfaces_list(self):
         """Выгрузить список интерфейсов"""
@@ -4674,8 +4702,9 @@ def menu3(utm, mode, section):
             print('1   - Экспортировать список "Зоны".')
 #            print("2  - Экспортировать список интерфейсов.")
             print('3   - Экспортировать список "Шлюзы".')
-            print("4   - Экспортировать список подсетей DHCP.")
-            print("5   - Экспортировать настройки DNS.")
+            print('4   - Экспортировать настройки "Проверка сети".')
+            print("5   - Экспортировать список подсетей DHCP.")
+            print("6   - Экспортировать настройки DNS.")
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -4771,8 +4800,9 @@ def menu3(utm, mode, section):
             print('1   - Импортировать список Зоны".')
 #            print("2  - Импортировать список интерфейсов.")
             print('3   - Импортировать список "Шлюзы".')
-            print("4   - Импортировать список подсетей DHCP.")
-            print("5   - Импортировать настройки DNS.")
+            print('4   - Импортировать настройки "Проверка сети".')
+            print("5   - Импортировать список подсетей DHCP.")
+            print("6   - Импортировать настройки DNS.")
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -4957,12 +4987,15 @@ def main():
                 elif command == 203:
                     utm.export_gateways_list()
                 elif command == 204:
-                    utm.export_dhcp_subnets()
+                    utm.export_gateway_failover()
                 elif command == 205:
+                    utm.export_dhcp_subnets()
+                elif command == 206:
                     utm.export_dns_config()
                 elif command == 299:
                     utm.export_zones_list()
                     utm.export_gateways_list()
+                    utm.export_gateway_failover()
                     utm.export_dhcp_subnets()
                     utm.export_dns_config()
 
@@ -5116,6 +5149,7 @@ def main():
                     utm.export_ssl_profiles_list()
                     utm.export_zones_list()
                     utm.export_gateways_list()
+                    utm.export_gateway_failover()
                     utm.export_dhcp_subnets()
                     utm.export_dns_config()
                     utm.export_ui()
@@ -5230,12 +5264,15 @@ def main():
                     elif command == 203:
                         utm.import_gateways_list()
                     elif command == 204:
-                        utm.import_dhcp_subnets()
+                        utm.import_gateway_failover()
                     elif command == 205:
+                        utm.import_dhcp_subnets()
+                    elif command == 206:
                         utm.import_dns_config()
                     elif command == 299:
                         utm.import_zones()
                         utm.export_gateways_list()
+                        utm.import_gateway_failover()
                         utm.import_dhcp_subnets()
                         utm.import_dns_config()
 
@@ -5400,6 +5437,7 @@ def main():
                         utm.import_ssl_profiles()
                         utm.import_zones()
                         utm.import_gateways_list()
+                        utm.import_gateway_failover()
                         utm.import_dhcp_subnets()
                         utm.import_dns_config()
                         utm.import_ui()
