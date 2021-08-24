@@ -4014,7 +4014,6 @@ class UTM(UtmXmlRpc):
 
         for item in data:
             item.pop('id', None)
-#            item.pop('node_name', None)
             item.pop('connection_time', None)
             item.pop('cc', None)
             item['security_profile_id'] = vpn_security_profiles[item['security_profile_id']]
@@ -4065,7 +4064,7 @@ class UTM(UtmXmlRpc):
                     vpn_client_rules[item['name']] = result
                     print(f'\tКлиентское правило VPN "{item["name"]}" добавлено.')
 
-################### ZONES #####################################
+################### NETWORK #####################################
     def export_zones_list(self):
         """Выгрузить список зон"""
         print('Выгружается список "Зоны" раздела "Сеть":')
@@ -4102,6 +4101,64 @@ class UTM(UtmXmlRpc):
                 print(result)
             else:
                 print(f"\tЗона '{item['name']}' добавлена.")
+
+    def export_gateways_list(self):
+        """Выгрузить список шлюзов"""
+        print('Выгружается список "Шлюзы" раздела "Сеть":')
+        if not os.path.isdir('data/network'):
+            os.makedirs('data/network')
+
+        _, data = self.get_gateways_list()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('node_name', None)
+            item.pop('_appliance_iface', None)
+            item.pop('index', None)
+            item.pop('protocol', None)
+            item.pop('mac', None)
+            item.pop('cc', None)
+            if self.version.startswith('5'):
+                item['iface'] = item['iface'].replace('eth', 'port', 1)
+                item['is_automatic'] = False
+                item['vrf'] = 'default'
+
+        with open("data/network/config_gateways.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Шлюзы" выгружен в файл "data/network/config_gateways.json".')
+
+    def import_gateways_list(self):
+        """Импортировать список шлюзов"""
+        print('Импорт списка "Шлюзы" раздела "Сеть":')
+        try:
+            with open("data/network/config_gateways.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Шлюзы" не импортирован!\n\tНе найден файл "data/network/config_gateways.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет шлюзов для импорта.")
+            return
+
+        _, result = self.get_gateways_list()
+        gateways_list = {x.get('name', x['ipv4']): x['id'] for x in result}
+
+        for item in data:
+            if not item['is_automatic'] and item['name'] in gateways_list:
+                print(f'\tШлюз "{item["name"]}" уже существует', end= ' - ')
+                err, result = self.update_gateway(gateways_list[item['name']], item)
+                if err == 2:
+                    print("\n", f"\033[31m{result}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            else:
+                err, result = self.add_gateway(item)
+                if err == 2:
+                    print(f"\033[31m{result}\033[0m")
+                else:
+                    gateways_list[item['name']] = result
+                    print(f'\tШлюз "{item["name"]}" добавлен.')
 
 ################### INTERFACES #################################
     def export_interfaces_list(self):
@@ -4533,9 +4590,9 @@ class UTM(UtmXmlRpc):
         else:
             item['users'] = []
 
-def menu1():
+def menu1(utm):
     print("\033c")
-    print("\033[1;36;43mUserGate\033[1;37;43m                      Экспорт / Импорт конфигурации                     \033[1;36;43mUserGate\033[0m\n")
+    print(f"\033[1;36;43mUserGate\033[1;37;43m                     Экспорт / Импорт конфигурации                 \033[3;37;43mIP:{utm.server_ip}\033[0m\n")
     print("\033[32mПрограмма экспортирует настройки UTM в файлы json в каталог 'data' в текущей директории.")
     print("Вы можете изменить содержимое файлов и импортировать данные конфигурационные файлы в UTM.\033[0m\n")
     print("1  - Экспорт конфигурации")
@@ -4553,9 +4610,9 @@ def menu1():
         except ValueError:
             print("Ошибка! Введите число.")
 
-def menu2(mode):
+def menu2(utm, mode):
     print("\033c")
-    print("\033[1;36;43mUserGate\033[1;37;43m                      Экспорт / Импорт конфигурации                     \033[1;36;43mUserGate\033[0m\n")
+    print(f"\033[1;36;43mUserGate\033[1;37;43m                     Экспорт / Импорт конфигурации                 \033[3;37;43mIP:{utm.server_ip}\033[0m\n")
     print("\033[32mПрограмма экспортирует настройки UTM в файлы json в каталог 'data' в текущей директории.")
     print("Вы можете изменить содержимое файлов и импортировать данные конфигурационные файлы в UTM.\033[0m\n")
     print(f"Выберите раздел для {'экспорта' if mode == 1 else 'импорта'}.\n")
@@ -4585,7 +4642,7 @@ def menu2(mode):
 
 def menu3(utm, mode, section):
     print("\033c")
-    print("\033[1;36;43mUserGate\033[1;37;43m                      Экспорт / Импорт конфигурации                     \033[1;36;43mUserGate\033[0m\n")
+    print(f"\033[1;36;43mUserGate\033[1;37;43m                     Экспорт / Импорт конфигурации                 \033[3;37;43mIP:{utm.server_ip}\033[0m\n")
     print("\033[32mПрограмма экспортирует настройки UTM в файлы json в каталог 'data' в текущей директории.")
     print("Вы можете изменить содержимое файлов и импортировать данные конфигурационные файлы в UTM.\033[0m\n")
     print(f"Выберите список для {'экспорта' if mode == 1 else 'импорта'}.\n")
@@ -4614,10 +4671,11 @@ def menu3(utm, mode, section):
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
         elif section == 2:
-            print("1   - Экспортировать список Зон.")
+            print('1   - Экспортировать список "Зоны".')
 #            print("2  - Экспортировать список интерфейсов.")
-            print("3   - Экспортировать список подсетей DHCP.")
-            print("4   - Экспортировать настройки DNS.")
+            print('3   - Экспортировать список "Шлюзы".')
+            print("4   - Экспортировать список подсетей DHCP.")
+            print("5   - Экспортировать настройки DNS.")
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -4710,10 +4768,11 @@ def menu3(utm, mode, section):
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
         elif section == 2:
-            print("1   - Импортировать список Зон.")
+            print('1   - Импортировать список Зоны".')
 #            print("2  - Импортировать список интерфейсов.")
-            print("3   - Импортировать список подсетей DHCP.")
-            print("4   - Импортировать настройки DNS.")
+            print('3   - Импортировать список "Шлюзы".')
+            print("4   - Импортировать список подсетей DHCP.")
+            print("5   - Импортировать настройки DNS.")
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -4813,9 +4872,9 @@ def main():
     try:
         utm = UTM(server_ip, login, password)
         while True:
-            mode = menu1()
+            mode = menu1(utm)
             while True:
-                section = menu2(mode)
+                section = menu2(utm, mode)
                 if section == 999:
                     break
                 elif section == 99:
@@ -4896,11 +4955,14 @@ def main():
 #                elif command == 202:
 #                    utm.export_interfaces_list()
                 elif command == 203:
-                    utm.export_dhcp_subnets()
+                    utm.export_gateways_list()
                 elif command == 204:
+                    utm.export_dhcp_subnets()
+                elif command == 205:
                     utm.export_dns_config()
                 elif command == 299:
                     utm.export_zones_list()
+                    utm.export_gateways_list()
                     utm.export_dhcp_subnets()
                     utm.export_dns_config()
 
@@ -5053,6 +5115,7 @@ def main():
                     utm.export_netflow_profiles_list()
                     utm.export_ssl_profiles_list()
                     utm.export_zones_list()
+                    utm.export_gateways_list()
                     utm.export_dhcp_subnets()
                     utm.export_dns_config()
                     utm.export_ui()
@@ -5165,11 +5228,14 @@ def main():
 #                    elif command == 202:
 #                        utm.import_interfaces()
                     elif command == 203:
-                        utm.import_dhcp_subnets()
+                        utm.import_gateways_list()
                     elif command == 204:
+                        utm.import_dhcp_subnets()
+                    elif command == 205:
                         utm.import_dns_config()
                     elif command == 299:
                         utm.import_zones()
+                        utm.export_gateways_list()
                         utm.import_dhcp_subnets()
                         utm.import_dns_config()
 
@@ -5333,6 +5399,7 @@ def main():
                         utm.import_netflow_profiles()
                         utm.import_ssl_profiles()
                         utm.import_zones()
+                        utm.import_gateways_list()
                         utm.import_dhcp_subnets()
                         utm.import_dns_config()
                         utm.import_ui()

@@ -204,13 +204,13 @@ class UtmXmlRpc:
             sys.exit(1)
         return len(result), result
 
-##################################### ZONES #####################################
+##################################### Network #####################################
     def get_zones_list(self):
         """Получить список зон"""
         try:
             result = self._server.v1.netmanager.zones.list(self._auth_token)
         except rpc.Fault as err:
-            print(f"Ошибка get_{command}: [{err.faultCode}] — {err.faultString}")
+            print(f"Ошибка utm.get_zones_list: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
         return len(result), result
 
@@ -224,7 +224,7 @@ class UtmXmlRpc:
             if err.faultCode == 409:
                 return 1, f"\tЗона: {zone['name']} уже существует. Проверка параметров..."
             else:
-                return 2, f"Ошибка add_zone: [{err.faultCode}] — {err.faultString}"
+                return 2, f"Ошибка utm.add_zone: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result
 
@@ -238,9 +238,39 @@ class UtmXmlRpc:
             if err.faultCode == 409:
                 return 1, f"\tЗона: {zone['name']} - нет отличающихся параметров для изменения."
             else:
-                return 2, f"Ошибка update_zone: [{err.faultCode}] — {err.faultString}"
+                return 2, f"Ошибка utm.update_zone: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result
+
+    def get_gateways_list(self):
+        """Получить список шлюзов"""
+        try:
+            result = self._server.v1.netmanager.gateways.list(self._auth_token, self.node_name, {})
+        except rpc.Fault as err:
+            print(f"Ошибка get_gateways_list: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result), result
+
+    def add_gateway(self, gateway):
+        """Добавить новый шлюз"""
+        try:
+            result = self._server.v1.netmanager.gateway.add(self._auth_token, self.node_name, gateway)
+        except rpc.Fault as err:
+            if err.faultCode == 1019:
+                return 2, f'\tШлюз "{gateway["name"]}" не импортирован! Duplicate IP.'
+            else:
+                return 2, f"\tОшибка utm.add_gateway: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def update_gateway(self, gateway_id, gateway):
+        """Обновить шлюз"""
+        try:
+            result = self._server.v1.netmanager.gateway.update(self._auth_token, self.node_name, gateway_id, gateway)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.update_gateway: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает True
 
 ################################## Interfaces ###################################
     def get_interfaces_list(self):
