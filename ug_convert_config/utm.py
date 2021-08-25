@@ -295,7 +295,7 @@ class UtmXmlRpc:
         try:
             result = self._server.v1.netmanager.interfaces.list(self._auth_token, self.node_name, {})
         except rpc.Fault as err:
-            print(f"Ошибка get_interfaces_list: [{err.faultCode}] — {err.faultString}")
+            print(f"Ошибка utm.get_interfaces_list: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
         return len(result), result
 

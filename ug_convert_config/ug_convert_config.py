@@ -4191,11 +4191,15 @@ class UTM(UtmXmlRpc):
 ################### INTERFACES #################################
     def export_interfaces_list(self):
         """Выгрузить список интерфейсов"""
-        _, zones = self.get_zones_list()
-        for item in zones:
-            self.zones[item['id']] = item['name']
+        print('Выгружается список "Интерфейсы" раздела "Сеть":')
+        if not os.path.isdir('data/network'):
+            os.makedirs('data/network')
+
+        _, result = self.get_netflow_profiles_list()
+        self.list_netflow = {x['id']: x['name'] for x in result}
 
         _, data = self.get_interfaces_list()
+
         for item in data:
             item['id'], _ = item['id'].split(':')
             item.pop('link_info', None)
@@ -4203,15 +4207,46 @@ class UTM(UtmXmlRpc):
             item.pop('errors', None)
             item.pop('node_name', None)
             item.pop('mac', None)
-            item['enabled'] = False
-            item['running'] = False
             if item['zone_id']:
                 item['zone_id'] = self.zones[item['zone_id']]
+            item['netflow_profile'] = self.list_netflow.get(item['netflow_profile'], None)
             if self.version.startswith('5'):
                 item.pop('iface_id', None)
                 item.pop('qlen', None)
                 item.pop('nameservers', None)
                 item.pop('ifindex', None)
+                item['id'] = item['id'].replace('eth', 'port', 1)
+                item['id'] = item['id'].replace('rename', 'port', 1)
+                item['name'] = item['name'].replace('eth', 'port', 1)
+                item['name'] = item['name'].replace('rename', 'port', 1)
+                if item['kind'] == 'vlan':
+                    item['link'] = item['link'].replace('eth', 'port', 1)
+                    item['link'] = item['link'].replace('rename', 'port', 1)
+                elif item['kind'] == 'bridge':
+                    ports = item['bridging']['ports']
+                    ports = [x.replace('eth', 'port', 1) if x.startswith('eth') else x.replace('rename', 'port', 1) for x in ports]
+                    item['bridging']['ports'] = ports
+                elif item['kind'] == 'bond':
+                    ports = item['bonding']['slaves']
+                    ports = [x.replace('eth', 'port', 1) if x.startswith('eth') else x.replace('rename', 'port', 1) for x in ports]
+                    item['bonding']['slaves'] = ports
+                if item['kind'] == 'ppp':
+                    item.pop('dhcp_relay', None)
+                    item['pppoe'].pop('index', None)
+                    item['pppoe'].pop('name', None)
+                    item['pppoe'].pop('iface_id', None)
+                    item['pppoe'].pop('id', None)
+                    if item['pppoe']['peer'] is None:
+                        item['pppoe']['peer'] = ""
+                    item['pppoe']['ifname'] = item['pppoe']['ifname'].replace('eth', 'port', 1)
+                    item['pppoe']['ifname'] = item['pppoe']['ifname'].replace('rename', 'port', 1)
+                if item['kind'] == 'tunnel':
+                    item.pop('dhcp_relay', None)
+                    item['tunnel'].pop('name', None)
+                    item['tunnel'].pop('ttl', None)
+                    item['tunnel'].pop('id', None)
+                    if 'vni' not in item['tunnel'].keys():
+                        item['tunnel']['vni'] = 0
                 if item['kind'] not in ('vpn', 'ppp', 'tunnel'):
                     if not item['dhcp_relay']:
                         item['dhcp_relay'] = {
@@ -4224,9 +4259,9 @@ class UTM(UtmXmlRpc):
                         item['dhcp_relay'].pop('iface_id', None)
         data.sort(key=lambda x: x['name'])
 
-        with open("config_interfaces.json", "w") as fd:
+        with open("data/network/config_interfaces.json", "w") as fd:
             json.dump(data, fd, indent=4, ensure_ascii=False)
-        print(f"\nСписок интерфейсов: {self.node_name}, ip: {self.server_ip} выгружен в файл 'config_interfaces.json'.")
+        print(f'\tСписок интерфейсов выгружен в файл "data/network/config_interfaces.json".')
 
     def import_interfaces(self):
         """Добавить/обновить интерфейс на UTM"""
@@ -4700,7 +4735,7 @@ def menu3(utm, mode, section):
             print("\033[33m0   - Выход.\033[0m")
         elif section == 2:
             print('1   - Экспортировать список "Зоны".')
-#            print("2  - Экспортировать список интерфейсов.")
+            print('2   - Экспортировать список "Интерфейсы".')
             print('3   - Экспортировать список "Шлюзы".')
             print('4   - Экспортировать настройки "Проверка сети".')
             print("5   - Экспортировать список подсетей DHCP.")
@@ -4982,8 +5017,8 @@ def main():
 
                 elif command == 201:
                     utm.export_zones_list()
-#                elif command == 202:
-#                    utm.export_interfaces_list()
+                elif command == 202:
+                    utm.export_interfaces_list()
                 elif command == 203:
                     utm.export_gateways_list()
                 elif command == 204:
