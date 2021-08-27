@@ -299,16 +299,31 @@ class UtmXmlRpc:
             sys.exit(1)
         return len(result), result
 
-    def update_interface(self, iface_id, iface_data):
+    def update_interface(self, iface_id, iface):
         """Update interface"""
         try:
-            result = self._server.v1.netmanager.interface.update(self._auth_token, self.node_name, iface_id, iface_data)
-        except TypeError as err:
-            return 11, err
+            result = self._server.v1.netmanager.interface.update(self._auth_token, self.node_name, iface_id, iface)
         except rpc.Fault as err:
-            return 1, f"Ошибка update_interface: [{err.faultCode}] — {err.faultString}"
+            if err.faultCode == 1014:
+                return 2, f'\tАдаптер {iface["name"]}: Cannot update slave interface.'
+            if err.faultCode == 18009:
+                return 2, f'\tАдаптер {iface["name"]}: IP address conflict - {iface["ipv4"]}.'
+            else:
+                return 2, f"\tОшибка utm.update_interface: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result    # Возвращается True
+
+    def add_interface_bond(self, bond):
+        """Добавить bond интерфейс"""
+        try:
+            result = self._server.v1.netmanager.interface.add.bond(self._auth_token, self.node_name, bond['name'], bond)
+        except rpc.Fault as err:
+#            if err.faultCode == 1019:
+#                return 2, f'\tШлюз "{gateway["name"]}" не импортирован! Duplicate IP.'
+#            else:
+            return 2, f"\tОшибка utm.add_interface_bond: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
 
 ##################################### DHCP ######################################
     def get_dhcp_list(self):
@@ -330,7 +345,7 @@ class UtmXmlRpc:
             if err.faultCode == 1017:
                 return 1, f'\tDHCP subnet "{subnet["name"]}" уже существует.'
             else:
-                return 2, f"Ошибка utm.add_dhcp_subnet: [{err.faultCode}] — {err.faultString}"
+                return 2, f"\tОшибка utm.add_dhcp_subnet: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result
 

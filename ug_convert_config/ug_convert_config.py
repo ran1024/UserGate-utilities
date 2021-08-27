@@ -4188,7 +4188,6 @@ class UTM(UtmXmlRpc):
         else:
             print(f'\tНастройки проверки сети обновлены.')
 
-################### INTERFACES #################################
     def export_interfaces_list(self):
         """Выгрузить список интерфейсов"""
         print('Выгружается список "Интерфейсы" раздела "Сеть":')
@@ -4202,6 +4201,7 @@ class UTM(UtmXmlRpc):
 
         for item in data:
             item['id'], _ = item['id'].split(':')
+#            item.pop('id', None)
             item.pop('link_info', None)
             item.pop('speed', None)
             item.pop('errors', None)
@@ -4209,7 +4209,7 @@ class UTM(UtmXmlRpc):
             item.pop('mac', None)
             if item['zone_id']:
                 item['zone_id'] = self.zones[item['zone_id']]
-            item['netflow_profile'] = self.list_netflow.get(item['netflow_profile'], None)
+            item['netflow_profile'] = self.list_netflow.get(item['netflow_profile'], 0)
             if self.version.startswith('5'):
                 item.pop('iface_id', None)
                 item.pop('qlen', None)
@@ -4263,66 +4263,88 @@ class UTM(UtmXmlRpc):
             json.dump(data, fd, indent=4, ensure_ascii=False)
         print(f'\tСписок интерфейсов выгружен в файл "data/network/config_interfaces.json".')
 
-    def import_interfaces(self):
-        """Добавить/обновить интерфейс на UTM"""
-        new_ports = {}
-        dst_ports = {'': True,}
-        _, data = self.get_interfaces_list()
-        for item in data:
-            dst_ports[item['name']] = item['enabled']
-        available_ports = [x for x in sorted(dst_ports.keys()) if x != ''
-                                                                 and not x.startswith('tunnel')
-                                                                 and not x.startswith('bridge')
-                                                                 and x.find('.') == -1]
-
-        _, data = self.get_zones_list()
-        zones = {x['name']: x['id'] for x in data}
-
-        print(dst_ports)
-        print(zones, '\n')
-
+    def import_interfaces(self, server_ip):
+        """Импортировать интерфесы"""
+        print('Импорт списка "Интерфейсы" раздела "Сеть":')
         try:
-            with open("config_interfaces.json", "r") as fd:
-                data = json.load(fd)
+            with open("data/network/config_interfaces.json", "r") as fh:
+                data = json.load(fh)
         except FileNotFoundError as err:
-            raise UtmError(f"\nОшибка: [FileNotFoundError] Не найден файл 'config_interfaces.json' с сохранённой конфигурацией!")
+            print(f'\t\033[31mСписок "Интерфейсы" не импортированы!\n\tНе найден файл "data/network/config_interfaces.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        management_port = ''
+        slave_interfaces = set()
+        interfaces_list = set()
+
+        _, result = self.get_netflow_profiles_list()
+        self.list_netflow = {x['name']: x['id'] for x in result}
+        self.list_netflow[0] = 0
+
+        _, result = self.get_interfaces_list()
+        for item in result:
+            interfaces_list.add(item['name'])
+            if item['master']:
+                slave_interfaces.add(item['name'])
+            if f"{server_ip}/24" in item['ipv4']:
+                management_port = item["name"]
+                print(f'\tИнтерфейс "{item["name"]}" [{server_ip}] используется для текущей сессии - \033[32mNot updated!\033[0;0m')
 
         for item in data:
-            if item['kind'] == 'adapter' and item['name'] not in dst_ports.keys():
-                print(f"\nВы добавляете несуществующий порт: {item['name']}")
-                print(f"Существуют следующие порты: {available_ports}")
-                while True:
-                    port = input("\nВведите имя порта или Enter, если данный порт не импортируется: ")
-                    if port not in available_ports and port != '':
-                        print("Вы ввели некорректный порт.")
+            if item['zone_id']:
+                try:
+                    item['zone_id'] = self.zones[item['zone_id']]
+                except KeyError as err:
+                    print(f'\t\033[33mЗона {err} для интерфейса "{item["name"]}" не найдена.\n\tЗагрузите список зон и повторите попытку.\033[0m')
+                    item['zone_id'] = 0
+            try:
+                item['netflow_profile'] = self.list_netflow[item['netflow_profile']]
+            except KeyError as err:
+                print(f'\t\033[33mПрофиль netflow {err} для интерфейса "{item["name"]}" не найден.\n\tЗагрузите список профилей netflow и повторите попытку.\033[0m')
+                item['netflow_profile'] = 0
+
+            if item['kind'] == 'adapter' and item['name'] != management_port:
+                if item['name'] in interfaces_list:
+                    if item['name'] in slave_interfaces:
+                        print(f'\tСетевой адаптер "{item["name"]}" не обновлён так как является slave интерфейсом!')
                     else:
-                        break
-                new_ports[item['name']] = port
-                item['id'] = port
-                item['name'] = port
-                if port != '':
-                    available_ports.remove(port)
+                        print(f'\tПрименение настроек для сетевого адаптера "{item["name"]}"', end= ' - ')
+                        err, result = self.update_interface(item['name'], item)
+                        if err == 2:
+                            print("\033[33mSkipped!\033[0m")
+                            print(f"\033[31m{result}\033[0m")
+                        else:
+                            print("\033[32mUpdated!\033[0m")
+                else:
+                    print(f'\t\033[33mСетевой адаптер "{item["name"]}" не существует!\033[0m')
 
         for item in data:
-            if item['kind'] == 'adapter':
-                if dst_ports[item['name']]:
-                    if item['name'] != '':
-                        print(f"Пропускаем {item['name']} так как он включён.")
-                    continue
-                else:
-                    print(f"Импортируем {item['name']}")
-        for item in data:
-            if item['kind'] == 'vlan':
-                
-                if item['name'] in dst_ports.keys():
-                    if dst_ports[item['name'], ]:
-                        print(f"Пропускаем {item['name']} так как он включён.")
-                        continue
+            if item['kind'] == 'bond':
+                if item['name'] in interfaces_list:
+                    print(f'\tИнтерфейс "{item["name"]}" уже существует', end= ' - ')
+                    err, result = self.update_interface(item['name'], item)
+                    if err == 2:
+                        print("\033[33mSkipped!\033[0m")
+                        print(f"\033[31m{result}\033[0m")
                     else:
-                        print(f"Делаем update настроек порта {item['name']}")
+                        print("\033[32mUpdated!\033[0;0m")
                 else:
-                    print(f"Создаём новый порт {item['name']}")
-                    
+                    ports = set(item['bonding']['slaves'])
+                    if ports.isdisjoint(slave_interfaces):
+                        if management_port not in ports:
+                            item.pop('kind')
+                            err, result = self.add_interface_bond(item)
+                            if err == 2:
+                                print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен!\033[0m')
+                                print(f"\033[31m{result}\033[0m")
+                            else:
+                                interfaces_list.add(item['name'])
+                                print(f'\tИнтерфейс "{item["name"]}" добавлен.')
+                        else:
+                            print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен так как содержит slave-порт используемый для текущей сессии!\033[0m')
+                    else:
+                        print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен так как содержит slave-порты принадлежащие другим интерфейсам!\033[0m')
+
 
 ################### DHCP #################################
     def export_dhcp_subnets(self):
@@ -4833,7 +4855,7 @@ def menu3(utm, mode, section):
             print("\033[33m0   - Выход.\033[0m")
         elif section == 2:
             print('1   - Импортировать список Зоны".')
-#            print("2  - Импортировать список интерфейсов.")
+            print('2   - Импортировать список "Интерфейсы".')
             print('3   - Импортировать список "Шлюзы".')
             print('4   - Импортировать настройки "Проверка сети".')
             print("5   - Импортировать список подсетей DHCP.")
@@ -5228,8 +5250,8 @@ def main():
                     utm.export_vpn_client_rules()
             except UtmError as err:
                 print(err)
-            except Exception as err:
-                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+#            except Exception as err:
+#                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
             finally:
                 utm.logout()
                 print("\033[32mЭкспорт конфигурации завершён.\033[0m\n")
@@ -5294,8 +5316,8 @@ def main():
                         utm.import_ssl_profiles()
                     elif command == 201:
                         utm.import_zones()
-#                    elif command == 202:
-#                        utm.import_interfaces()
+                    elif command == 202:
+                        utm.import_interfaces(server_ip)
                     elif command == 203:
                         utm.import_gateways_list()
                     elif command == 204:
@@ -5520,8 +5542,8 @@ def main():
                         utm.import_vpn_client_rules()
                 except UtmError as err:
                     print(err)
-                except Exception as err:
-                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+#                except Exception as err:
+#                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
                 finally:
                     utm.logout()
                     print("\033[32mИмпорт конфигурации завершён.\033[0m\n")
@@ -5531,8 +5553,8 @@ def main():
     except KeyboardInterrupt:
         print("\nПрограмма принудительно завершена пользователем.\n")
         utm.logout()
-    except:
-        print("\nПрограмма завершена.\n")
+#    except:
+#        print("\nПрограмма завершена.\n")
 
 if __name__ == '__main__':
     main()
