@@ -307,16 +307,12 @@ class UtmXmlRpc:
             print("\033[33mSkipped!\033[0m")
             if err.faultCode == 1014:
                 print(f'\t\033[31mАдаптер {iface["name"]}: Cannot update slave interface.\033[0m')
-#                return 2, f'\tАдаптер {iface["name"]}: Cannot update slave interface.'
             elif err.faultCode == 18009:
                 print(f'\t\033[31mАдаптер {iface["name"]}: IP address conflict - {iface["ipv4"]}.\033[0m')
-#                return 2, f'\tАдаптер {iface["name"]}: IP address conflict - {iface["ipv4"]}.'
             else:
                 print(f'\t\033[31mОшибка utm.update_interface: [{err.faultCode}] — {err.faultString}\033[0m')
-#                return 2, f"\tОшибка utm.update_interface: [{err.faultCode}] — {err.faultString}"
         else:
             print('\033[32mUpdated!\033[0m')
-#            return 0, result    # Возвращается True
 
     def add_interface_bond(self, bond):
         """Добавить bond интерфейс"""
@@ -342,6 +338,33 @@ class UtmXmlRpc:
             result = self._server.v1.netmanager.interface.add.vlan(self._auth_token, self.node_name, vlan['name'], vlan)
         except rpc.Fault as err:
             return 2, f"\tОшибка utm.add_interface_vlan: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def add_interface_pppoe(self, ppp):
+        """Добавить PPPoE интерфейс"""
+        try:
+            result = self._server.v1.netmanager.interface.add.pppoe(self._auth_token, self.node_name, ppp['name'], ppp)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_interface_pppoe: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def add_interface_tunnel(self, tunnel):
+        """Добавить TUNNEL интерфейс"""
+        try:
+            result = self._server.v1.netmanager.interface.add.tunnel(self._auth_token, self.node_name, tunnel['name'], tunnel)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_interface_tunnel: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def add_interface_vpn(self, vpn):
+        """Добавить VPN интерфейс"""
+        try:
+            result = self._server.v1.netmanager.interface.add.vpn(self._auth_token, 'cluster', vpn['name'], vpn)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_interface_vpn: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result     # Возвращает ID добавленного правила
 

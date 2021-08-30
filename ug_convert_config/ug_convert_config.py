@@ -4209,7 +4209,7 @@ class UTM(UtmXmlRpc):
             item.pop('mac', None)
             if item['zone_id']:
                 item['zone_id'] = self.zones[item['zone_id']]
-            item['netflow_profile'] = self.list_netflow.get(item['netflow_profile'], 0)
+            item['netflow_profile'] = self.list_netflow.get(item['netflow_profile'], 'undefined')
             if self.version.startswith('5'):
                 item.pop('iface_id', None)
                 item.pop('qlen', None)
@@ -4276,10 +4276,11 @@ class UTM(UtmXmlRpc):
         management_port = ''
         slave_interfaces = set()
         interfaces_list = {}
+        vpn_ips = set()
 
         _, result = self.get_netflow_profiles_list()
         self.list_netflow = {x['name']: x['id'] for x in result}
-        self.list_netflow[0] = 0
+        self.list_netflow['undefined'] = "undefined"
 
         _, result = self.get_interfaces_list()
         for item in result:
@@ -4289,6 +4290,8 @@ class UTM(UtmXmlRpc):
             if f"{server_ip}/24" in item['ipv4']:
                 management_port = item["name"]
                 print(f'\tИнтерфейс "{item["name"]}" [{server_ip}] используется для текущей сессии - \033[32mNot updated!\033[0;0m')
+            if item['kind'] == 'vpn':
+                vpn_ips.update(item['ipv4'])
 
         # Update сетевых адаптеров
         for item in data:
@@ -4360,11 +4363,45 @@ class UTM(UtmXmlRpc):
                 else:
                     print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен так как содержит slave-порт используемый для текущей сессии!\033[0m')
 
-        # Импорт интерфейсов vlan
+            # Импорт интерфейсов TUNNEL
+            elif 'kind' in item.keys() and item['kind'] == 'tunnel':
+                if item['name'] in interfaces_list.keys():
+                    print(f'\tИнтерфейс "{item["name"]}" уже существует', end= ' - ')
+                    self.update_interface(item['name'], item)
+                else:
+                    item.pop('kind')
+                    err, result = self.add_interface_tunnel(item)
+                    if err == 2:
+                        print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен!\033[0m')
+                        print(f"\033[31m{result}\033[0m")
+                    else:
+                        interfaces_list[item['name']] = 'tunnel'
+                        print(f'\tИнтерфейс "{item["name"]}" добавлен.')
+
+            # Импорт интерфейсов VPN
+            elif 'kind' in item.keys() and item['kind'] == 'vpn':
+                if item['name'] in interfaces_list.keys():
+                    print(f'\tИнтерфейс "{item["name"]}" уже существует', end= ' - ')
+                    self.update_interface(item['name'], item)
+                else:
+                    ipv4 = set(item['ipv4'])
+                    if ipv4.isdisjoint(vpn_ips):
+                        item.pop('kind')
+                        err, result = self.add_interface_vpn(item)
+                        if err == 2:
+                            print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен!\033[0m')
+                            print(f"\033[31m{result}\033[0m")
+                        else:
+                            interfaces_list[item['name']] = 'tunnel'
+                            print(f'\tИнтерфейс "{item["name"]}" добавлен.')
+                    else:
+                        print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен так как содержит IP принадлежащий другому VPN интерфейсу!\033[0m')
+
+        # Импорт интерфейсов VLAN
         for item in data:
             if 'kind' in item.keys() and item['kind'] == 'vlan':
                 if item['link'] not in slave_interfaces:
-                    if interfaces_list[item['link']] in ('bridge', 'adapter'):
+                    if interfaces_list[item['link']] in ('bridge', 'bond', 'adapter'):
                         if item['name'] in interfaces_list.keys():
                             print(f'\tИнтерфейс "{item["name"]}" уже существует', end= ' - ')
                             self.update_interface(item['name'], item)
@@ -4376,6 +4413,28 @@ class UTM(UtmXmlRpc):
                                 print(f"\033[31m{result}\033[0m")
                             else:
                                 interfaces_list[item['name']] = 'vlan'
+                                print(f'\tИнтерфейс "{item["name"]}" добавлен.')
+                    else:
+                        print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен, так как ссылается на интерфейс "{item["link"]}" с недопустимым типом!\033[0m')
+                else:
+                    print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен, так как ссылается на slave-порт принадлежащий другому интерфейсу!\033[0m')
+
+        # Импорт интерфейсов PPPoE
+        for item in data:
+            if 'kind' in item.keys() and item['kind'] == 'ppp':
+                if item['pppoe']['ifname'] not in slave_interfaces:
+                    if interfaces_list[item['pppoe']['ifname']] in ('bond', 'adapter'):
+                        if item['name'] in interfaces_list.keys():
+                            print(f'\tИнтерфейс "{item["name"]}" уже существует', end= ' - ')
+                            self.update_interface(item['name'], item)
+                        else:
+                            item.pop('kind')
+                            err, result = self.add_interface_pppoe(item)
+                            if err == 2:
+                                print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен!\033[0m')
+                                print(f"\033[31m{result}\033[0m")
+                            else:
+                                interfaces_list[item['name']] = 'ppp'
                                 print(f'\tИнтерфейс "{item["name"]}" добавлен.')
                     else:
                         print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен, так как ссылается на интерфейс "{item["link"]}" с недопустимым типом!\033[0m')
@@ -5287,8 +5346,8 @@ def main():
                     utm.export_vpn_client_rules()
             except UtmError as err:
                 print(err)
-#            except Exception as err:
-#                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+            except Exception as err:
+                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
             finally:
                 utm.logout()
                 print("\033[32mЭкспорт конфигурации завершён.\033[0m\n")
@@ -5581,8 +5640,8 @@ def main():
                         utm.import_vpn_client_rules()
                 except UtmError as err:
                     print(err)
-#                except Exception as err:
-#                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+                except Exception as err:
+                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
                 except json.JSONDecodeError as err:
                     print(f'\n\033[31mОшибка парсинга файла конфигурации: {err}\033[0m')
                 finally:
@@ -5594,8 +5653,8 @@ def main():
     except KeyboardInterrupt:
         print("\nПрограмма принудительно завершена пользователем.\n")
         utm.logout()
-#    except:
-#        print("\nПрограмма завершена.\n")
+    except:
+        print("\nПрограмма завершена.\n")
 
 if __name__ == '__main__':
     main()
