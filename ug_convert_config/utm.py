@@ -304,24 +304,44 @@ class UtmXmlRpc:
         try:
             result = self._server.v1.netmanager.interface.update(self._auth_token, self.node_name, iface_id, iface)
         except rpc.Fault as err:
+            print("\033[33mSkipped!\033[0m")
             if err.faultCode == 1014:
-                return 2, f'\tАдаптер {iface["name"]}: Cannot update slave interface.'
-            if err.faultCode == 18009:
-                return 2, f'\tАдаптер {iface["name"]}: IP address conflict - {iface["ipv4"]}.'
+                print(f'\t\033[31mАдаптер {iface["name"]}: Cannot update slave interface.\033[0m')
+#                return 2, f'\tАдаптер {iface["name"]}: Cannot update slave interface.'
+            elif err.faultCode == 18009:
+                print(f'\t\033[31mАдаптер {iface["name"]}: IP address conflict - {iface["ipv4"]}.\033[0m')
+#                return 2, f'\tАдаптер {iface["name"]}: IP address conflict - {iface["ipv4"]}.'
             else:
-                return 2, f"\tОшибка utm.update_interface: [{err.faultCode}] — {err.faultString}"
+                print(f'\t\033[31mОшибка utm.update_interface: [{err.faultCode}] — {err.faultString}\033[0m')
+#                return 2, f"\tОшибка utm.update_interface: [{err.faultCode}] — {err.faultString}"
         else:
-            return 0, result    # Возвращается True
+            print('\033[32mUpdated!\033[0m')
+#            return 0, result    # Возвращается True
 
     def add_interface_bond(self, bond):
         """Добавить bond интерфейс"""
         try:
             result = self._server.v1.netmanager.interface.add.bond(self._auth_token, self.node_name, bond['name'], bond)
         except rpc.Fault as err:
-#            if err.faultCode == 1019:
-#                return 2, f'\tШлюз "{gateway["name"]}" не импортирован! Duplicate IP.'
-#            else:
             return 2, f"\tОшибка utm.add_interface_bond: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def add_interface_bridge(self, bridge):
+        """Добавить bridge интерфейс"""
+        try:
+            result = self._server.v1.netmanager.interface.add.bridge(self._auth_token, self.node_name, bridge['name'], bridge)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_interface_bridge: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def add_interface_vlan(self, vlan):
+        """Добавить vlan интерфейс"""
+        try:
+            result = self._server.v1.netmanager.interface.add.vlan(self._auth_token, self.node_name, vlan['name'], vlan)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_interface_vlan: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result     # Возвращает ID добавленного правила
 

@@ -315,11 +315,11 @@ class UTM(UtmXmlRpc):
             item.pop('guid')
             item.pop('cc', None)
             item.pop('readonly', None)
-            if self.version.startswith('5'):
-                if item['protocols'][0]['port'] == '110':
-                    item['protocols'][0]['proto'] = 'pop3'
-                if item['protocols'][0]['port'] == '995':
-                    item['protocols'][0]['proto'] = 'pop3s'
+                if self.version.startswith('5') and item['protocols']:
+                   if item['protocols'][0]['port'] == '110':
+                        item['protocols'][0]['proto'] = 'pop3'
+                    if item['protocols'][0]['port'] == '995':
+                        item['protocols'][0]['proto'] = 'pop3s'
         with open("data/library/config_services.json", "w") as fh:
             json.dump(data['items'], fh, indent=4, ensure_ascii=False)
         print(f'\tСписок сервисов выгружен в файл "data/library/config_services.json".')
@@ -4275,7 +4275,7 @@ class UTM(UtmXmlRpc):
 
         management_port = ''
         slave_interfaces = set()
-        interfaces_list = set()
+        interfaces_list = {}
 
         _, result = self.get_netflow_profiles_list()
         self.list_netflow = {x['name']: x['id'] for x in result}
@@ -4283,13 +4283,14 @@ class UTM(UtmXmlRpc):
 
         _, result = self.get_interfaces_list()
         for item in result:
-            interfaces_list.add(item['name'])
+            interfaces_list[item['name']] = item['kind']
             if item['master']:
                 slave_interfaces.add(item['name'])
             if f"{server_ip}/24" in item['ipv4']:
                 management_port = item["name"]
                 print(f'\tИнтерфейс "{item["name"]}" [{server_ip}] используется для текущей сессии - \033[32mNot updated!\033[0;0m')
 
+        # Update сетевых адаптеров
         for item in data:
             if item['zone_id']:
                 try:
@@ -4304,46 +4305,82 @@ class UTM(UtmXmlRpc):
                 item['netflow_profile'] = 0
 
             if item['kind'] == 'adapter' and item['name'] != management_port:
-                if item['name'] in interfaces_list:
+                if item['name'] in interfaces_list.keys():
                     if item['name'] in slave_interfaces:
                         print(f'\tСетевой адаптер "{item["name"]}" не обновлён так как является slave интерфейсом!')
                     else:
                         print(f'\tПрименение настроек для сетевого адаптера "{item["name"]}"', end= ' - ')
-                        err, result = self.update_interface(item['name'], item)
-                        if err == 2:
-                            print("\033[33mSkipped!\033[0m")
-                            print(f"\033[31m{result}\033[0m")
-                        else:
-                            print("\033[32mUpdated!\033[0m")
+                        self.update_interface(item['name'], item)
                 else:
                     print(f'\t\033[33mСетевой адаптер "{item["name"]}" не существует!\033[0m')
 
         for item in data:
+            # Импорт интерфейсов bond
             if item['kind'] == 'bond':
-                if item['name'] in interfaces_list:
-                    print(f'\tИнтерфейс "{item["name"]}" уже существует', end= ' - ')
-                    err, result = self.update_interface(item['name'], item)
-                    if err == 2:
-                        print("\033[33mSkipped!\033[0m")
-                        print(f"\033[31m{result}\033[0m")
+                ports = set(item['bonding']['slaves'])
+                if management_port not in ports:
+                    if item['name'] in interfaces_list.keys():
+                        print(f'\tИнтерфейс "{item["name"]}" уже существует', end= ' - ')
+                        self.update_interface(item['name'], item)
                     else:
-                        print("\033[32mUpdated!\033[0;0m")
-                else:
-                    ports = set(item['bonding']['slaves'])
-                    if ports.isdisjoint(slave_interfaces):
-                        if management_port not in ports:
+                        if ports.isdisjoint(slave_interfaces):
                             item.pop('kind')
                             err, result = self.add_interface_bond(item)
                             if err == 2:
                                 print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен!\033[0m')
                                 print(f"\033[31m{result}\033[0m")
                             else:
-                                interfaces_list.add(item['name'])
+                                interfaces_list[item['name']] = 'bond'
                                 print(f'\tИнтерфейс "{item["name"]}" добавлен.')
                         else:
-                            print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен так как содержит slave-порт используемый для текущей сессии!\033[0m')
+                            print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен так как содержит slave-порты принадлежащие другим интерфейсам!\033[0m')
+                    slave_interfaces.update(item['bonding']['slaves'])
+                else:
+                    print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен так как содержит slave-порт используемый для текущей сессии!\033[0m')
+            # Импорт интерфейсов bridge
+            elif item['kind'] == 'bridge':
+                ports = set(item['bridging']['ports'])
+                if management_port not in ports:
+                    if item['name'] in interfaces_list.keys():
+                        print(f'\tИнтерфейс "{item["name"]}" уже существует', end= ' - ')
+                        self.update_interface(item['name'], item)
                     else:
-                        print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен так как содержит slave-порты принадлежащие другим интерфейсам!\033[0m')
+                        if ports.isdisjoint(slave_interfaces):
+                            item.pop('kind')
+                            err, result = self.add_interface_bridge(item)
+                            if err == 2:
+                                print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен!\033[0m')
+                                print(f"\033[31m{result}\033[0m")
+                            else:
+                                interfaces_list[item['name']] = 'bridge'
+                                print(f'\tИнтерфейс "{item["name"]}" добавлен.')
+                        else:
+                            print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен так как содержит slave-порты принадлежащие другим интерфейсам!\033[0m')
+                    slave_interfaces.update(item['bridging']['ports'])
+                else:
+                    print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен так как содержит slave-порт используемый для текущей сессии!\033[0m')
+
+        # Импорт интерфейсов vlan
+        for item in data:
+            if 'kind' in item.keys() and item['kind'] == 'vlan':
+                if item['link'] not in slave_interfaces:
+                    if interfaces_list[item['link']] in ('bridge', 'adapter'):
+                        if item['name'] in interfaces_list.keys():
+                            print(f'\tИнтерфейс "{item["name"]}" уже существует', end= ' - ')
+                            self.update_interface(item['name'], item)
+                        else:
+                            item.pop('kind')
+                            err, result = self.add_interface_vlan(item)
+                            if err == 2:
+                                print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен!\033[0m')
+                                print(f"\033[31m{result}\033[0m")
+                            else:
+                                interfaces_list[item['name']] = 'vlan'
+                                print(f'\tИнтерфейс "{item["name"]}" добавлен.')
+                    else:
+                        print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен, так как ссылается на интерфейс "{item["link"]}" с недопустимым типом!\033[0m')
+                else:
+                    print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен, так как ссылается на slave-порт принадлежащий другому интерфейсу!\033[0m')
 
 
 ################### DHCP #################################
@@ -5250,8 +5287,8 @@ def main():
                     utm.export_vpn_client_rules()
             except UtmError as err:
                 print(err)
-#            except Exception as err:
-#                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+            except Exception as err:
+                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
             finally:
                 utm.logout()
                 print("\033[32mЭкспорт конфигурации завершён.\033[0m\n")
@@ -5328,6 +5365,7 @@ def main():
                         utm.import_dns_config()
                     elif command == 299:
                         utm.import_zones()
+                        utm.import_interfaces(server_ip)
                         utm.export_gateways_list()
                         utm.import_gateway_failover()
                         utm.import_dhcp_subnets()
@@ -5493,6 +5531,7 @@ def main():
                         utm.import_netflow_profiles()
                         utm.import_ssl_profiles()
                         utm.import_zones()
+                        utm.import_interfaces(server_ip)
                         utm.import_gateways_list()
                         utm.import_gateway_failover()
                         utm.import_dhcp_subnets()
@@ -5542,8 +5581,10 @@ def main():
                         utm.import_vpn_client_rules()
                 except UtmError as err:
                     print(err)
-#                except Exception as err:
-#                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+                except Exception as err:
+                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+                except json.JSONDecodeError as err:
+                    print(f'\n\033[31mОшибка парсинга файла конфигурации: {err}\033[0m')
                 finally:
                     utm.logout()
                     print("\033[32mИмпорт конфигурации завершён.\033[0m\n")
@@ -5553,8 +5594,8 @@ def main():
     except KeyboardInterrupt:
         print("\nПрограмма принудительно завершена пользователем.\n")
         utm.logout()
-#    except:
-#        print("\nПрограмма завершена.\n")
+    except:
+        print("\nПрограмма завершена.\n")
 
 if __name__ == '__main__':
     main()
