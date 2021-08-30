@@ -315,11 +315,11 @@ class UTM(UtmXmlRpc):
             item.pop('guid')
             item.pop('cc', None)
             item.pop('readonly', None)
-                if self.version.startswith('5') and item['protocols']:
-                   if item['protocols'][0]['port'] == '110':
-                        item['protocols'][0]['proto'] = 'pop3'
-                    if item['protocols'][0]['port'] == '995':
-                        item['protocols'][0]['proto'] = 'pop3s'
+            if self.version.startswith('5') and item['protocols']:
+                if item['protocols'][0]['port'] == '110':
+                    item['protocols'][0]['proto'] = 'pop3'
+                if item['protocols'][0]['port'] == '995':
+                    item['protocols'][0]['proto'] = 'pop3s'
         with open("data/library/config_services.json", "w") as fh:
             json.dump(data['items'], fh, indent=4, ensure_ascii=False)
         print(f'\tСписок сервисов выгружен в файл "data/library/config_services.json".')
@@ -5287,8 +5287,8 @@ def main():
                     utm.export_vpn_client_rules()
             except UtmError as err:
                 print(err)
-            except Exception as err:
-                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+#            except Exception as err:
+#                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
             finally:
                 utm.logout()
                 print("\033[32mЭкспорт конфигурации завершён.\033[0m\n")
@@ -5581,8 +5581,8 @@ def main():
                         utm.import_vpn_client_rules()
                 except UtmError as err:
                     print(err)
-                except Exception as err:
-                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+#                except Exception as err:
+#                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
                 except json.JSONDecodeError as err:
                     print(f'\n\033[31mОшибка парсинга файла конфигурации: {err}\033[0m')
                 finally:
@@ -5594,8 +5594,8 @@ def main():
     except KeyboardInterrupt:
         print("\nПрограмма принудительно завершена пользователем.\n")
         utm.logout()
-    except:
-        print("\nПрограмма завершена.\n")
+#    except:
+#        print("\nПрограмма завершена.\n")
 
 if __name__ == '__main__':
     main()
