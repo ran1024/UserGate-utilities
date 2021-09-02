@@ -302,7 +302,10 @@ class UtmXmlRpc:
     def update_interface(self, iface_id, iface):
         """Update interface"""
         try:
-            result = self._server.v1.netmanager.interface.update(self._auth_token, self.node_name, iface_id, iface)
+            if iface['kind'] == 'vpn':
+                result = self._server.v1.netmanager.interface.update(self._auth_token, 'cluster', iface_id, iface)
+            else:
+                result = self._server.v1.netmanager.interface.update(self._auth_token, self.node_name, iface_id, iface)
         except rpc.Fault as err:
             print("\033[33mSkipped!\033[0m")
             if err.faultCode == 1014:
@@ -439,6 +442,33 @@ class UtmXmlRpc:
                 return 2, f"\tОшибка utm.add_dns_record: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result
+######################################## WCCP  ########################################
+    def get_wccp_list(self):
+        """Получить список правил wccp"""
+        try:
+            result = self._server.v1.wccp.rules.list(self._auth_token)
+        except rpc.Fault as err:
+            print(f"Ошибка utm.get_wccp_list: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return len(result), result
+
+    def add_wccp_rule(self, rule):
+        """Добавить правило wccp"""
+        try:
+            result = self._server.v1.wccp.rule.add(self._auth_token, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_wccp_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def update_wccp_rule(self, rule_id, rule):
+        """Изменить правило wccp"""
+        try:
+            result = self._server.v1.wccp.rule.update(self._auth_token, rule_id, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_wccp_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
 
 ##################################### Библиотека  ######################################
     def get_nlist_list(self, list_type):

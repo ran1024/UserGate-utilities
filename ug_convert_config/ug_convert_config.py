@@ -73,7 +73,7 @@ class UTM(UtmXmlRpc):
             self.l7_apps = {x['id'] if 'id' in x.keys() else x['app_id']: x['name'] for x in result['items'] if result['count']}
 
             result = self._server.v2.nlists.list(self._auth_token, 'network', 0, 1000, {})
-            self.list_IP = {x['id']: x['name'] for x in result['items'] if result['count']}
+            self.list_IP = {x['id']: x['name'].replace("/", "_") for x in result['items'] if result['count']}
 
             result = self._server.v2.nlists.list(self._auth_token, 'mime', 0, 1000, {})
             self.list_mime = {x['id']: x['name'] for x in result['items'] if result['count']}
@@ -374,6 +374,7 @@ class UTM(UtmXmlRpc):
             item.pop('global', None)
             item.pop('version')
             item.pop('last_update')
+            item['name'] = item['name'].replace("/","_")
             for content in item['content']:
                 content.pop('id')
             with open(f"data/library/ip_lists/{item['name']}.json", "w") as fd:
@@ -4291,7 +4292,7 @@ class UTM(UtmXmlRpc):
                 management_port = item["name"]
                 print(f'\tИнтерфейс "{item["name"]}" [{server_ip}] используется для текущей сессии - \033[32mNot updated!\033[0;0m')
             if item['kind'] == 'vpn':
-                vpn_ips.update(item['ipv4'])
+                vpn_ips.update({x[:x.rfind('.')] for x in item['ipv4']})
 
         # Update сетевых адаптеров
         for item in data:
@@ -4318,7 +4319,7 @@ class UTM(UtmXmlRpc):
                     print(f'\t\033[33mСетевой адаптер "{item["name"]}" не существует!\033[0m')
 
         for item in data:
-            # Импорт интерфейсов bond
+            # Импорт интерфейсов BOND
             if item['kind'] == 'bond':
                 ports = set(item['bonding']['slaves'])
                 if management_port not in ports:
@@ -4340,7 +4341,7 @@ class UTM(UtmXmlRpc):
                     slave_interfaces.update(item['bonding']['slaves'])
                 else:
                     print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен так как содержит slave-порт используемый для текущей сессии!\033[0m')
-            # Импорт интерфейсов bridge
+            # Импорт интерфейсов BRIDGE
             elif item['kind'] == 'bridge':
                 ports = set(item['bridging']['ports'])
                 if management_port not in ports:
@@ -4384,7 +4385,7 @@ class UTM(UtmXmlRpc):
                     print(f'\tИнтерфейс "{item["name"]}" уже существует', end= ' - ')
                     self.update_interface(item['name'], item)
                 else:
-                    ipv4 = set(item['ipv4'])
+                    ipv4 = {x[:x.rfind('.')] for x in item['ipv4']}
                     if ipv4.isdisjoint(vpn_ips):
                         item.pop('kind')
                         err, result = self.add_interface_vpn(item)
@@ -4395,7 +4396,15 @@ class UTM(UtmXmlRpc):
                             interfaces_list[item['name']] = 'tunnel'
                             print(f'\tИнтерфейс "{item["name"]}" добавлен.')
                     else:
-                        print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен так как содержит IP принадлежащий другому VPN интерфейсу!\033[0m')
+                        print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен так как содержит IP принадлежащий подсети другого интерфейса VPN!\033[0m')
+
+#                _, result = self.get_interfaces_list()
+#                err_list = {}
+#                for item in result:
+#                    if item['kind'] == 'vpn':
+#                        err_list[item['name']] = item['errors']
+#                json_str = json.dumps(err_list, indent=4, ensure_ascii=False)
+#                print(json_str, "\n")
 
         # Импорт интерфейсов VLAN
         for item in data:
@@ -4609,6 +4618,62 @@ class UTM(UtmXmlRpc):
         self.import_dns_servers()
         self.import_dns_rules()
         self.import_dns_static()
+
+####################################### WCCP ###########################################
+    def export_wccp_list(self):
+        """Выгрузить список правил WCCP"""
+        print('Выгружается список "WCCP" раздела "Сеть":')
+        if not os.path.isdir('data/network'):
+            os.makedirs('data/network')
+
+        _, data = self.get_wccp_list()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('cc', None)
+            if item['routers']:
+                for x in item['routers']:
+                    x[1] = self.list_IP[x[1]] if x[0] == 'list_id' else x[1]
+
+        with open("data/network/config_wccp.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "WCCP" выгружен в файл "data/network/config_wccp.json".')
+
+#            if item[routers]:
+#                for x in item[routers]:
+#                    try:
+#                        if x[0] == 'list_id':
+#                            x[1] = self.list_IP[x[1]]
+#                    except KeyError as err:
+#                        print(f'\t\033[33mНе найден список {err} для правила "{item["name"]}".\n\tЗагрузите списки IP-адресов и повторите попытку.\033[0m')
+#                        x = []
+    def import_wccp_rules(self):
+        """Импортировать список правил WCCP"""
+        try:
+            with open("data/network/config_wccp.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок правил WCCP не импортирован!\n\tНе найден файл "data/network/config_wccp.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет правил WCCP для импорта.")
+            return
+
+        wccp_rules = {x['name']: x['id'] for x in self.get_wccp_list}
+
+        for item in data:
+
+            if item['name'] in wccp_rules:
+                print(f'\tПравило DNS прокси "{item["name"]}" уже существует.')
+            else:
+                err, result = self.add_dns_rule(item)
+                if err == 1:
+                    print(result)
+                elif err == 2:
+                    print(f"\033[31m{result}\033[0m")
+                else:
+                    print(f'\tПравило DNS прокси "{item["name"]}" добавлено.')
 
 ################################## Служебные функции ###################################
     def set_src_zone_and_ips(self, item):
@@ -4856,8 +4921,9 @@ def menu3(utm, mode, section):
             print('2   - Экспортировать список "Интерфейсы".')
             print('3   - Экспортировать список "Шлюзы".')
             print('4   - Экспортировать настройки "Проверка сети".')
-            print("5   - Экспортировать список подсетей DHCP.")
-            print("6   - Экспортировать настройки DNS.")
+            print('5   - Экспортировать список подсетей DHCP.')
+            print('6   - Экспортировать настройки DNS.')
+            print('8   - Экспортировать список "WCCP".')
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -5145,12 +5211,15 @@ def main():
                     utm.export_dhcp_subnets()
                 elif command == 206:
                     utm.export_dns_config()
+                elif command == 208:
+                    utm.export_wccp_list()
                 elif command == 299:
                     utm.export_zones_list()
                     utm.export_gateways_list()
                     utm.export_gateway_failover()
                     utm.export_dhcp_subnets()
                     utm.export_dns_config()
+                    utm.export_wccp_list()
 
                 elif command == 301:
                     utm.export_ui()
@@ -5305,6 +5374,7 @@ def main():
                     utm.export_gateway_failover()
                     utm.export_dhcp_subnets()
                     utm.export_dns_config()
+                    utm.export_wccp_list()
                     utm.export_ui()
                     utm.export_ntp()
                     utm.export_settings()
