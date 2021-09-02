@@ -492,9 +492,9 @@ class UtmXmlRpc:
                     except rpc.Fault as err:
                         print(f'\033[31m\tСодержимое списка "{item["name"]}" не экспортировано. Ошибка загрузки списка!\033[0m')
                         item['content'] = []
-                    except xml.parsers.expat.ExpatError:
+                    except ExpatError:
                         print(f'\033[31m\tСодержимое списка "{item["name"]}" не экспортировано. Список corrupted!\033[0m')
-                        item['content'] = []
+                        content['items'] = []
                     if list_type == 'timerestrictiongroup' and self.version.startswith('5'):
                         item['content'] = [x['value'] for x in content['items']]
                     elif list_type == 'httpcwl':

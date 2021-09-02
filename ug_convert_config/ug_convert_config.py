@@ -567,10 +567,10 @@ class UTM(UtmXmlRpc):
             item.pop('version', None)
             item.pop('last_update', None)
             for content in item['content']:
-                content.pop('id')
+                content.pop('id', None)
             with open(f"data/library/url/{item['name']}.json", "w") as fd:
                 json.dump(item, fd, indent=4, ensure_ascii=False)
-            print(f"\tСписок URL {item['name']} выгружен в файл data/library/url/{item['name']}.json")
+            print(f'\tСписок URL "{item["name"]}" выгружен в файл data/library/url/{item["name"]}.json')
 
     def import_url_lists(self):
         """Импортировать списки URL на UTM"""
