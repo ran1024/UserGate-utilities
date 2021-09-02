@@ -2,6 +2,7 @@
 # Общий класс для работы с xml-rpc
 import sys
 import xmlrpc.client as rpc
+from xml.parsers.expat import ExpatError
 
 
 class UtmXmlRpc:
@@ -489,10 +490,10 @@ class UtmXmlRpc:
                         else:
                             content = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 1000, '', [])
                     except rpc.Fault as err:
-                        print(f'\033[31m\t1-Содержимое списка "{item["name"]}" не импортировано так как список corrupted!\033[0m')
+                        print(f'\033[31m\tСодержимое списка "{item["name"]}" не экспортировано. Ошибка загрузки списка!\033[0m')
                         item['content'] = []
-                    except xml.parsers.expat.ExpatError as err:
-                        print(f'\033[31m\t2-Содержимое списка "{item["name"]}" не импортировано так как список corrupted!\033[0m')
+                    except xml.parsers.expat.ExpatError:
+                        print(f'\033[31m\tСодержимое списка "{item["name"]}" не экспортировано. Список corrupted!\033[0m')
                         item['content'] = []
                     if list_type == 'timerestrictiongroup' and self.version.startswith('5'):
                         item['content'] = [x['value'] for x in content['items']]
