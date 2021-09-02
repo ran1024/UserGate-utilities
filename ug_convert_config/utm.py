@@ -481,34 +481,27 @@ class UtmXmlRpc:
             print(f"\tОшибка-1 utm.get_nlist_list: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
 
-        try:
-            for item in result['items']:
-                if item['editable']:
-                    try:
-                        if list_type == 'ipspolicy' and self.version.startswith('5'):
-                            content = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 1000, {}, [])
-                        else:
-                            content = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 1000, '', [])
-                    except rpc.Fault as err:
-                        print(f'\033[31m\tСодержимое списка "{item["name"]}" не экспортировано. Ошибка загрузки списка!\033[0m')
-                        item['content'] = []
-                    except ExpatError:
-                        print(f'\033[31m\tСодержимое списка "{item["name"]}" не экспортировано. Список corrupted!\033[0m')
-                        content['items'] = []
-                    if list_type == 'timerestrictiongroup' and self.version.startswith('5'):
-                        item['content'] = [x['value'] for x in content['items']]
-                    elif list_type == 'httpcwl':
-                        array = {'id': item['id'], 'content': content['items']}
-                        break
+        for item in result['items']:
+            if item['editable']:
+                try:
+                    if list_type == 'ipspolicy' and self.version.startswith('5'):
+                        content = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 1000, {}, [])
                     else:
-#                        item['content'] = [x for x in content['items']]
-                        item['content'] = content['items']
-
-                    array.append(item)
-
-        except rpc.Fault as err:
-            print(f"\tОшибка-2 utm.get_nlist_list: [{err.faultCode}] — {err.faultString}")
-            sys.exit(1)
+                        content = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 1000, '', [])
+                except rpc.Fault as err:
+                    print(f'\033[33m\tСодержимое списка "{item["name"]}" не экспортировано. Ошибка загрузки списка!\033[0m')
+                    content['items'] = []
+                except ExpatError:
+                    print(f'\033[33m\tСодержимое списка "{item["name"]}" не экспортировано. Список corrupted!\033[0m')
+                    content['items'] = []
+                if list_type == 'timerestrictiongroup' and self.version.startswith('5'):
+                    item['content'] = [x['value'] for x in content['items']]
+                elif list_type == 'httpcwl':
+                    array = {'id': item['id'], 'content': content['items']}
+                    break
+                else:
+                    item['content'] = content['items']
+                array.append(item)
         return len(array), array
 
     def add_nlist(self, named_list):
@@ -519,7 +512,7 @@ class UtmXmlRpc:
             return 2, err
         except rpc.Fault as err:
             if err.faultCode == 409:
-                return 1, f'\tСписок: "{named_list["name"]}" уже существует. Проверка параметров...'
+                return 1, f'\tСписок: "{named_list["name"]}" уже существует'
             else:
                 return 2, f"\tОшибка utm.add_nlist: [{err.faultCode}] — {err.faultString}"
         else:

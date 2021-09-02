@@ -404,18 +404,21 @@ class UTM(UtmXmlRpc):
                         if err1 != 0:
                             print("\n", f"\033[31m{result1}\033[0m")
                         else:
-                            print("\033[32mOk!\033[0;0m")
+                            print("\033[32mUpdated!\033[0;0m")
                     elif err == 2:
                         print(f"\033[31m{result}\033[0m")
                         continue
                     else:
                         self.list_IP[ip_list['name']] = result
                         print(f'\tДобавлен список IP-адресов: "{ip_list["name"]}".')
-                    for item in content:
-                        err2, result2 = self.add_nlist_item(result, item)
-                        if err2 == 2:
-                            print(f"\033[31m{result2}\033[0m")
-                    print(f'\t\tСодержимое списка "{ip_list["name"]}" обновлено.')
+                    if content:
+                        for item in content:
+                            err2, result2 = self.add_nlist_item(result, item)
+                            if err2 == 2:
+                                print(f"\033[31m{result2}\033[0m")
+                        print(f'\tСодержимое списка "{ip_list["name"]}" обновлено.')
+                    else:
+                        print(f'\tСписок "{ip_list["name"]}" пуст.')
             else:
                 print("\033[33m\tНет списков IP-адресов для импорта.\033[0m")
         else:
@@ -4659,17 +4662,20 @@ class UTM(UtmXmlRpc):
 
         for item in data:
             if item['routers']:
-                try:
-                    for x in item['routers']:
-                        if x[0] == 'list_id':
+                routers = []
+                for x in item['routers']:
+                    if x[0] == 'list_id':
+                        try:
                             x[1] = self.list_IP[x[1]]
-                except KeyError as err:
-                    print(f'\t\033[33mНе найден список {err} для правила "{item["name"]}".\n\tЗагрузите списки IP-адресов и повторите попытку.\033[0m')
-                    x = []
+                        except KeyError as err:
+                            print(f'\t\033[33mНе найден список {err} для правила "{item["name"]}".\n\tЗагрузите списки IP-адресов и повторите попытку.\033[0m')
+                            continue
+                    routers.append(x)
+                item['routers'] = routers
 
             if item['name'] in wccp_rules:
                 print(f'\tПравило WCCP "{item["name"]}" уже существует', end= ' - ')
-                self.update_wccp_rule(wccp_rules[item['name']], item)
+                err, result = self.update_wccp_rule(wccp_rules[item['name']], item)
                 if err == 2:
                     print("\n", f'\033[31m{result}\033[0m')
                 else:
@@ -5423,8 +5429,8 @@ def main():
                     utm.export_vpn_client_rules()
             except UtmError as err:
                 print(err)
-            except Exception as err:
-                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+#            except Exception as err:
+#                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
             finally:
                 utm.logout()
                 print("\033[32mЭкспорт конфигурации завершён.\033[0m\n")
@@ -5721,8 +5727,8 @@ def main():
                         utm.import_vpn_client_rules()
                 except UtmError as err:
                     print(err)
-                except Exception as err:
-                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+#                except Exception as err:
+#                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
                 except json.JSONDecodeError as err:
                     print(f'\n\033[31mОшибка парсинга файла конфигурации: {err}\033[0m')
                 finally:
@@ -5734,8 +5740,8 @@ def main():
     except KeyboardInterrupt:
         print("\nПрограмма принудительно завершена пользователем.\n")
         utm.logout()
-    except:
-        print("\nПрограмма завершена.\n")
+#    except:
+#        print("\nПрограмма завершена.\n")
 
 if __name__ == '__main__':
     main()
