@@ -450,7 +450,7 @@ class UtmXmlRpc:
         except rpc.Fault as err:
             print(f"Ошибка utm.get_wccp_list: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
-        return len(result), result
+        return result
 
     def add_wccp_rule(self, rule):
         """Добавить правило wccp"""
@@ -483,11 +483,17 @@ class UtmXmlRpc:
         try:
             for item in result['items']:
                 if item['editable']:
-                    if list_type == 'ipspolicy' and self.version.startswith('5'):
-                        content = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 1000, {}, [])
-                    else:
-                        content = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 1000, '', [])
-
+                    try:
+                        if list_type == 'ipspolicy' and self.version.startswith('5'):
+                            content = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 1000, {}, [])
+                        else:
+                            content = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 1000, '', [])
+                    except rpc.Fault as err:
+                        print(f'\033[31m\t1-Содержимое списка "{item["name"]}" не импортировано так как список corrupted!\033[0m')
+                        item['content'] = []
+                    except xml.parsers.expat.ExpatError as err:
+                        print(f'\033[31m\t2-Содержимое списка "{item["name"]}" не импортировано так как список corrupted!\033[0m')
+                        item['content'] = []
                     if list_type == 'timerestrictiongroup' and self.version.startswith('5'):
                         item['content'] = [x['value'] for x in content['items']]
                     elif list_type == 'httpcwl':

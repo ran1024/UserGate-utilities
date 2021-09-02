@@ -602,11 +602,14 @@ class UTM(UtmXmlRpc):
                     else:
                         self.list_url[url_list['name']] = result
                         print(f'\tДобавлен список URL: "{url_list["name"]}".')
-                    for item in content:
-                        err2, result2 = self.add_nlist_item(result, item)
-                        if err2 == 2:
-                            print(f"\033[31m{result2}\033[0m")
-                    print(f'\t\tСодержимое списка "{url_list["name"]}" обновлено.')
+                    if content:
+                        for item in content:
+                            err2, result2 = self.add_nlist_item(result, item)
+                            if err2 == 2:
+                                print(f"\033[31m{result2}\033[0m")
+                        print(f'\tСодержимое списка "{url_list["name"]}" обновлено.')
+                    else:
+                        print(f'\tСписок "{url_list["name"]}" пуст.')
             else:
                 print("\033[33m\tНет списков URL для импорта.\033[0m")
         else:
@@ -4639,14 +4642,6 @@ class UTM(UtmXmlRpc):
             json.dump(data, fd, indent=4, ensure_ascii=False)
         print(f'\tСписок "WCCP" выгружен в файл "data/network/config_wccp.json".')
 
-#            if item[routers]:
-#                for x in item[routers]:
-#                    try:
-#                        if x[0] == 'list_id':
-#                            x[1] = self.list_IP[x[1]]
-#                    except KeyError as err:
-#                        print(f'\t\033[33mНе найден список {err} для правила "{item["name"]}".\n\tЗагрузите списки IP-адресов и повторите попытку.\033[0m')
-#                        x = []
     def import_wccp_rules(self):
         """Импортировать список правил WCCP"""
         try:
@@ -4660,20 +4655,31 @@ class UTM(UtmXmlRpc):
             print("\tНет правил WCCP для импорта.")
             return
 
-        wccp_rules = {x['name']: x['id'] for x in self.get_wccp_list}
+        wccp_rules = {x['name']: x['id'] for x in self.get_wccp_list()}
 
         for item in data:
+            if item['routers']:
+                try:
+                    for x in item['routers']:
+                        if x[0] == 'list_id':
+                            x[1] = self.list_IP[x[1]]
+                except KeyError as err:
+                    print(f'\t\033[33mНе найден список {err} для правила "{item["name"]}".\n\tЗагрузите списки IP-адресов и повторите попытку.\033[0m')
+                    x = []
 
             if item['name'] in wccp_rules:
-                print(f'\tПравило DNS прокси "{item["name"]}" уже существует.')
-            else:
-                err, result = self.add_dns_rule(item)
-                if err == 1:
-                    print(result)
-                elif err == 2:
-                    print(f"\033[31m{result}\033[0m")
+                print(f'\tПравило WCCP "{item["name"]}" уже существует', end= ' - ')
+                self.update_wccp_rule(wccp_rules[item['name']], item)
+                if err == 2:
+                    print("\n", f'\033[31m{result}\033[0m')
                 else:
-                    print(f'\tПравило DNS прокси "{item["name"]}" добавлено.')
+                    print("\033[32mUpdated!\033[0;0m")
+            else:
+                err, result = self.add_wccp_rule(item)
+                if err == 2:
+                    print(f'\033[31m{result}\033[0m')
+                else:
+                    print(f'\tПравило WCCP "{item["name"]}" добавлено.')
 
 ################################## Служебные функции ###################################
     def set_src_zone_and_ips(self, item):
@@ -5020,8 +5026,9 @@ def menu3(utm, mode, section):
             print('2   - Импортировать список "Интерфейсы".')
             print('3   - Импортировать список "Шлюзы".')
             print('4   - Импортировать настройки "Проверка сети".')
-            print("5   - Импортировать список подсетей DHCP.")
-            print("6   - Импортировать настройки DNS.")
+            print('5   - Импортировать список подсетей DHCP.')
+            print('6   - Импортировать настройки DNS.')
+            print('8   - Импортировать список "WCCP".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -5492,6 +5499,8 @@ def main():
                         utm.import_dhcp_subnets()
                     elif command == 206:
                         utm.import_dns_config()
+                    elif command == 208:
+                        utm.import_wccp_rules()
                     elif command == 299:
                         utm.import_zones()
                         utm.import_interfaces(server_ip)
@@ -5499,6 +5508,7 @@ def main():
                         utm.import_gateway_failover()
                         utm.import_dhcp_subnets()
                         utm.import_dns_config()
+                        utm.import_wccp_rules()
 
                     elif command == 301:
                         utm.import_ui()
@@ -5665,6 +5675,7 @@ def main():
                         utm.import_gateway_failover()
                         utm.import_dhcp_subnets()
                         utm.import_dns_config()
+                        utm.import_wccp_rules()
                         utm.import_ui()
                         utm.import_ntp()
                         utm.import_settings()
