@@ -471,12 +471,43 @@ class UtmXmlRpc:
         else:
             return 0, result     # Возвращает ID добавленного правила
 
+######################################## Маршруты  ########################################
+    def get_routers_list(self):
+        """Получить список маршрутов"""
+        try:
+            if self.version.startswith('6'):
+                result = self._server.v1.netmanager.virtualrouters.list(self._auth_token)
+            else:
+                result = self._server.v1.netmanager.route.list(self._auth_token, self.node_name, {})
+        except rpc.Fault as err:
+            print(f"Ошибка utm.get_routers_list: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return result
+
+    def add_routers_rule(self, rule):
+        """Добавить статический маршрут"""
+        try:
+            result = self._server.v1.netmanager.virtualrouter.add(self._auth_token, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_routers_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def update_routers_rule(self, rule_id, rule):
+        """Изменить статический маршрут"""
+        try:
+            result = self._server.v1.netmanager.virtualrouter.update(self._auth_token, rule_id, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_routers_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
 ##################################### Библиотека  ######################################
     def get_nlist_list(self, list_type):
         """Получить содержимое пользовательских именованных списков раздела Библиотеки"""
         array = []
         try:
-            result = self._server.v2.nlists.list(self._auth_token, list_type, 0, 1000, {})
+            result = self._server.v2.nlists.list(self._auth_token, list_type, 0, 5000, {})
         except rpc.Fault as err:
             print(f"\tОшибка-1 utm.get_nlist_list: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
@@ -485,9 +516,9 @@ class UtmXmlRpc:
             if item['editable']:
                 try:
                     if list_type == 'ipspolicy' and self.version.startswith('5'):
-                        content = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 1000, {}, [])
+                        content = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 5000, {}, [])
                     else:
-                        content = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 1000, '', [])
+                        content = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 5000, '', [])
                 except rpc.Fault as err:
                     print(f'\033[33m\tСодержимое списка "{item["name"]}" не экспортировано. Ошибка загрузки списка!\033[0m')
                     content['items'] = []
@@ -1156,7 +1187,7 @@ class UtmXmlRpc:
     def get_firewall_rules(self):
         """Получить список правил межсетевого экрана"""
         try:
-            result = self._server.v1.firewall.rules.list(self._auth_token, 0, 1000, {})
+            result = self._server.v1.firewall.rules.list(self._auth_token, 0, 5000, {})
         except rpc.Fault as err:
             print(f"\tОшибка utm.get_firewall_rules: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)

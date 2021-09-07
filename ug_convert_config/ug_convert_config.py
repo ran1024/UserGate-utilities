@@ -72,7 +72,7 @@ class UTM(UtmXmlRpc):
                 result = self._server.v2.core.get.l7apps(self._auth_token, 0, 10000, '')
             self.l7_apps = {x['id'] if 'id' in x.keys() else x['app_id']: x['name'] for x in result['items'] if result['count']}
 
-            result = self._server.v2.nlists.list(self._auth_token, 'network', 0, 1000, {})
+            result = self._server.v2.nlists.list(self._auth_token, 'network', 0, 5000, {})
             self.list_IP = {x['id']: x['name'].replace("/", "_") for x in result['items'] if result['count']}
 
             result = self._server.v2.nlists.list(self._auth_token, 'mime', 0, 1000, {})
@@ -4687,6 +4687,86 @@ class UTM(UtmXmlRpc):
                 else:
                     print(f'\tПравило WCCP "{item["name"]}" добавлено.')
 
+#################################### Маршруты ##########################################
+    def export_routers_list(self):
+        """Выгрузить список маршрутов"""
+        if self.version.startswith('5'):
+            print('Выгружается список "Маршруты" раздела "Сеть":')
+        else:
+            print('Выгружается список "Виртуальные маршрутизаторы" раздела "Сеть":')
+        if not os.path.isdir('data/network'):
+            os.makedirs('data/network')
+
+        data = self.get_routers_list()
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('node_name', None)
+            item.pop('cc', None)
+            if self.version.startswith('5'):
+                item.pop('multihop', None)
+                item.pop('vrf', None)
+                item.pop('active', None)
+                item['ifname'] = item.pop('iface_id', 'undefined') if item['iface_id'] else 'undefined'
+            else:
+                if item['routes']:
+                    for x in item['routes']:
+                        x.pop('id', None)
+
+        with open("data/network/config_routers.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Статические маршруты" выгружен в файл "data/network/config_routers.json".')
+
+    def import_static_routes(self):
+        """Импортировать список статических маршрутов"""
+        try:
+            with open("data/network/config_routers.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок маршрутов не импортирован!\n\tНе найден файл "data/network/config_routers.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет правил статических маршрутов для импорта.")
+            return
+
+        virt_routers = {x['name']: x['id'] for x in self.get_routers_list()}
+
+        if 'routes' not in data[0].keys():
+            router = {
+                'name': 'default',
+                'routes': data
+            }
+            err, result = self.update_routers_rule(virt_routers['default'], router)
+            if err == 2:
+                print(f'\033[31m{result}\033[0m')
+            else:
+                print(f'\tСтатические маршруты добавлены.')
+        else:
+            for item in data:
+                item.pop('ospf', None)
+                item.pop('bgp', None)
+                item.pop('rip', None)
+                item.pop('pimsm', None)
+                print(item)
+                if item['name'] in virt_routers:
+                    print('update', item['name'])
+                else:
+                    print('add', item['name'])
+                
+#            err, result = self.update_routers_rule(router_id, item)
+#            if err == 2:
+#                print(f'\033[31m{result}\033[0m')
+#            else:
+#                print(f'\tМаршрут "{item["name"]}" добавлен.')
+
+#            else:
+#                err, result = self.add_routers_rule(item)
+#                if err == 2:
+#                    print(f'\033[31m{result}\033[0m')
+#                else:
+#                    print(f'\tПравило WCCP "{item["name"]}" добавлено.')
+
 ################################## Служебные функции ###################################
     def set_src_zone_and_ips(self, item):
         if 'src_zones' in item.keys():
@@ -4751,7 +4831,7 @@ class UTM(UtmXmlRpc):
                     elif x[0] == 'category_id':
                         x[1] = self._categories[x[1]]
             except KeyError as err:
-                print(f'\t\033[33mНе найдена группа URL-категорий {err} для правила "{item["name"]}".\n\tЗагрузите ктегории URL и повторите попытку.\033[0m')
+                print(f'\t\033[33mНе найдена группа URL-категорий {err} для правила "{item["name"]}".\n\tЗагрузите категории URL и повторите попытку.\033[0m')
                 item['url_categories'] = []
 
     def set_time_restrictions(self, item):
@@ -4771,11 +4851,20 @@ class UTM(UtmXmlRpc):
                 elif app[1] == "All":
                     app[1] = 0
                 else:
-                    app[1] = self.l7_categories[app[1]]
+                    try:
+                        app[1] = self.l7_categories[app[1]]
+                    except KeyError as err:
+                        print(f'\t\033[33mНе найдена категория l7 №{err}.\n\tВозможно нет лицензии, и UTM не получил список категорий l7.\n\tУстановите лицензию и повторите попытку.\033[0m')
             elif app[0] == 'group':
-                app[1] = self.list_applicationgroup[app[1]]
+                try:
+                    app[1] = self.list_applicationgroup[app[1]]
+                except KeyError as err:
+                    print(f'\t\033[33mНе найдена группа приложений №{err}.\n\tЗагрузите приложения и повторите попытку.\033[0m')
             elif app[0] == 'app':
-                app[1] = self.l7_apps[app[1]]
+                try:
+                    app[1] = self.l7_apps[app[1]]
+                except KeyError as err:
+                    print(f'\t\033[33mНе найдено приложение №{err}.\n\tВозможно нет лицензии, и UTM не получил список приложений l7.\n\tЗагрузите приложения или установите лицензию и повторите попытку.\033[0m')
 
     def get_names_users_and_groups(self, item):
         """
@@ -4935,6 +5024,10 @@ def menu3(utm, mode, section):
             print('4   - Экспортировать настройки "Проверка сети".')
             print('5   - Экспортировать список подсетей DHCP.')
             print('6   - Экспортировать настройки DNS.')
+            if utm.version.startswith('5'):
+                print('7   - Экспортировать список "Маршруты".')
+            else:
+                print('7   - Экспортировать список "Виртуальные маршрутизаторы".')
             print('8   - Экспортировать список "WCCP".')
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
@@ -5034,6 +5127,7 @@ def menu3(utm, mode, section):
             print('4   - Импортировать настройки "Проверка сети".')
             print('5   - Импортировать список подсетей DHCP.')
             print('6   - Импортировать настройки DNS.')
+            print('7   - Импортировать статические маршруты.')
             print('8   - Импортировать список "WCCP".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
@@ -5224,6 +5318,8 @@ def main():
                     utm.export_dhcp_subnets()
                 elif command == 206:
                     utm.export_dns_config()
+                elif command == 207:
+                    utm.export_routers_list()
                 elif command == 208:
                     utm.export_wccp_list()
                 elif command == 299:
@@ -5232,6 +5328,7 @@ def main():
                     utm.export_gateway_failover()
                     utm.export_dhcp_subnets()
                     utm.export_dns_config()
+                    utm.export_routers_list()
                     utm.export_wccp_list()
 
                 elif command == 301:
@@ -5387,6 +5484,7 @@ def main():
                     utm.export_gateway_failover()
                     utm.export_dhcp_subnets()
                     utm.export_dns_config()
+                    utm.export_routers_list()
                     utm.export_wccp_list()
                     utm.export_ui()
                     utm.export_ntp()
@@ -5429,8 +5527,8 @@ def main():
                     utm.export_vpn_client_rules()
             except UtmError as err:
                 print(err)
-#            except Exception as err:
-#                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+            except Exception as err:
+                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
             finally:
                 utm.logout()
                 print("\033[32mЭкспорт конфигурации завершён.\033[0m\n")
@@ -5505,6 +5603,8 @@ def main():
                         utm.import_dhcp_subnets()
                     elif command == 206:
                         utm.import_dns_config()
+                    elif command == 207:
+                        utm.import_static_routes()
                     elif command == 208:
                         utm.import_wccp_rules()
                     elif command == 299:
@@ -5514,6 +5614,7 @@ def main():
                         utm.import_gateway_failover()
                         utm.import_dhcp_subnets()
                         utm.import_dns_config()
+                        utm.import_static_routes()
                         utm.import_wccp_rules()
 
                     elif command == 301:
@@ -5681,6 +5782,7 @@ def main():
                         utm.import_gateway_failover()
                         utm.import_dhcp_subnets()
                         utm.import_dns_config()
+                        utm.import_static_routes()
                         utm.import_wccp_rules()
                         utm.import_ui()
                         utm.import_ntp()
@@ -5727,8 +5829,8 @@ def main():
                         utm.import_vpn_client_rules()
                 except UtmError as err:
                     print(err)
-#                except Exception as err:
-#                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+                except Exception as err:
+                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
                 except json.JSONDecodeError as err:
                     print(f'\n\033[31mОшибка парсинга файла конфигурации: {err}\033[0m')
                 finally:
@@ -5740,8 +5842,8 @@ def main():
     except KeyboardInterrupt:
         print("\nПрограмма принудительно завершена пользователем.\n")
         utm.logout()
-#    except:
-#        print("\nПрограмма завершена.\n")
+    except:
+        print("\nПрограмма завершена.\n")
 
 if __name__ == '__main__':
     main()
