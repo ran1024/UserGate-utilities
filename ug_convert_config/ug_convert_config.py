@@ -4744,28 +4744,26 @@ class UTM(UtmXmlRpc):
                 print(f'\tСтатические маршруты добавлены.')
         else:
             for item in data:
-                item.pop('ospf', None)
-                item.pop('bgp', None)
-                item.pop('rip', None)
-                item.pop('pimsm', None)
-                print(item)
                 if item['name'] in virt_routers:
-                    print('update', item['name'])
+                    item.pop('ospf', None)
+                    item.pop('bgp', None)
+                    item.pop('rip', None)
+                    item.pop('pimsm', None)
+                    err, result = self.update_routers_rule(virt_routers[item['name']], item)
+                    if err == 2:
+                        print(f'\033[31m{result}\033[0m')
+                    else:
+                        print(f'\tСтатические маршруты добавлены.')
                 else:
-                    print('add', item['name'])
-                
-#            err, result = self.update_routers_rule(router_id, item)
-#            if err == 2:
-#                print(f'\033[31m{result}\033[0m')
-#            else:
-#                print(f'\tМаршрут "{item["name"]}" добавлен.')
-
-#            else:
-#                err, result = self.add_routers_rule(item)
-#                if err == 2:
-#                    print(f'\033[31m{result}\033[0m')
-#                else:
-#                    print(f'\tПравило WCCP "{item["name"]}" добавлено.')
+                    item['ospf'] = {}
+                    item['bgp'] = {}
+                    item['rip'] = {}
+                    item['pimsm'] = {}
+                    err, result = self.add_routers_rule(item)
+                    if err == 2:
+                        print(f'\033[31m{result}\033[0m')
+                    else:
+                        print(f'\tСоздан виртуальный маршрутизатор "{item["name"]}". Статические маршруты добавлены.')
 
 ################################## Служебные функции ###################################
     def set_src_zone_and_ips(self, item):
