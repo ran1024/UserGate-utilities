@@ -73,7 +73,7 @@ class UTM(UtmXmlRpc):
             self.l7_apps = {x['id'] if 'id' in x.keys() else x['app_id']: x['name'] for x in result['items'] if result['count']}
 
             result = self._server.v2.nlists.list(self._auth_token, 'network', 0, 5000, {})
-            self.list_IP = {x['id']: x['name'].replace("/", "_") for x in result['items'] if result['count']}
+            self.list_IP = {x['id']: x['name'].replace("/", "_").strip() for x in result['items'] if result['count']}
 
             result = self._server.v2.nlists.list(self._auth_token, 'mime', 0, 1000, {})
             self.list_mime = {x['id']: x['name'] for x in result['items'] if result['count']}
@@ -141,7 +141,7 @@ class UTM(UtmXmlRpc):
             result = self._server.v2.nlists.list(self._auth_token, 'morphology', 0, 1000, {})
             self.list_morph = {x['name']: x['id'] for x in result['items'] if result['count']}
 
-            result = self._server.v2.nlists.list(self._auth_token, 'network', 0, 1000, {})
+            result = self._server.v2.nlists.list(self._auth_token, 'network', 0, 5000, {})
             self.list_IP = {x['name']: x['id'] for x in result['items'] if result['count']}
 
             result = self._server.v2.nlists.list(self._auth_token, 'useragent', 0, 1000, {})
@@ -308,8 +308,8 @@ class UTM(UtmXmlRpc):
         if not os.path.isdir('data/library'):
             os.makedirs('data/library')
 
-        data = {}
         _, data = self.get_services_list()
+
         for item in data['items']:
             item.pop('id')
             item.pop('guid')
@@ -412,11 +412,11 @@ class UTM(UtmXmlRpc):
                         self.list_IP[ip_list['name']] = result
                         print(f'\tДобавлен список IP-адресов: "{ip_list["name"]}".')
                     if content:
-                        for item in content:
-                            err2, result2 = self.add_nlist_item(result, item)
-                            if err2 == 2:
-                                print(f"\033[31m{result2}\033[0m")
-                        print(f'\tСодержимое списка "{ip_list["name"]}" обновлено.')
+                        err2, result2 = self.add_nlist_items(result, content)
+                        if err2 != 0:
+                            print(f"\033[31m{result2}\033[0m")
+                        else:
+                            print(f'\tСодержимое списка "{ip_list["name"]}" обновлено. Added {result2} record.')
                     else:
                         print(f'\tСписок "{ip_list["name"]}" пуст.')
             else:
@@ -914,6 +914,10 @@ class UTM(UtmXmlRpc):
             for content in item['content']:
                 content.pop('id')
                 content['value'] = self.l7_apps.get(content['value'], content['value'])
+                if content['value'] == '1С':
+                    content['value'] = '1C'   # Ставим английскую букву
+                elif content['value'] == 'Facebook Chat':
+                    content['value'] = 'Facebook  Chat'     # Добавляем лишний пробел
 
         with open("data/library/config_applications.json", "w") as fd:
             json.dump(data, fd, indent=4, ensure_ascii=False)
@@ -2192,14 +2196,23 @@ class UTM(UtmXmlRpc):
         if not os.path.isdir('data/network_policies'):
             os.makedirs('data/network_policies')
 
+        duplicate = {}
         _, data = self.get_firewall_rules()
 
         for item in data:
+            if item['name'] in duplicate.keys():
+                num = duplicate[item['name']]
+                num = num + 1
+                duplicate[item['name']] = num
+                item['name'] = f"{item['name']} {num}"
+            else:
+                duplicate[item['name']] = 0
             item.pop('id', None)
             item.pop('rownumber', None)
             item.pop('guid', None)
             item.pop('position_layer', None),
             item.pop('deleted_users', None)
+            item['name'] = item['name'].strip()
             if item['scenario_rule_id']:
                 item['scenario_rule_id'] = self.scenarios_rules[item['scenario_rule_id']]
             self.get_names_users_and_groups(item)
@@ -4125,8 +4138,11 @@ class UTM(UtmXmlRpc):
             item.pop('protocol', None)
             item.pop('mac', None)
             item.pop('cc', None)
+            if not item['name']:
+                item['name'] = item['ipv4']
             if self.version.startswith('5'):
-                item['iface'] = item['iface'].replace('eth', 'port', 1)
+                if item['iface']:
+                    item['iface'] = item['iface'].replace('eth', 'port', 1)
                 item['is_automatic'] = False
                 item['vrf'] = 'default'
 
@@ -4152,20 +4168,21 @@ class UTM(UtmXmlRpc):
         gateways_list = {x.get('name', x['ipv4']): x['id'] for x in result}
 
         for item in data:
-            if not item['is_automatic'] and item['name'] in gateways_list:
-                print(f'\tШлюз "{item["name"]}" уже существует', end= ' - ')
-                err, result = self.update_gateway(gateways_list[item['name']], item)
-                if err == 2:
-                    print("\n", f"\033[31m{result}\033[0m")
+            if not item['is_automatic']:
+                if item['name'] in gateways_list:
+                    print(f'\tШлюз "{item["name"]}" уже существует', end= ' - ')
+                    err, result = self.update_gateway(gateways_list[item['name']], item)
+                    if err == 2:
+                        print("\n", f"\033[31m{result}\033[0m")
+                    else:
+                        print("\033[32mUpdated!\033[0;0m")
                 else:
-                    print("\033[32mUpdated!\033[0;0m")
-            else:
-                err, result = self.add_gateway(item)
-                if err == 2:
-                    print(f"\033[31m{result}\033[0m")
-                else:
-                    gateways_list[item['name']] = result
-                    print(f'\tШлюз "{item["name"]}" добавлен.')
+                    err, result = self.add_gateway(item)
+                    if err == 2:
+                        print(f"\033[31m{result}\033[0m")
+                    else:
+                        gateways_list[item['name']] = result
+                        print(f'\tШлюз "{item["name"]}" добавлен.')
 
     def export_gateway_failover(self):
         """Выгрузить настройки проверки сети шлюзов"""
@@ -4632,7 +4649,7 @@ class UTM(UtmXmlRpc):
         if not os.path.isdir('data/network'):
             os.makedirs('data/network')
 
-        _, data = self.get_wccp_list()
+        data = self.get_wccp_list()
 
         for item in data:
             item.pop('id', None)
@@ -5322,6 +5339,7 @@ def main():
                     utm.export_wccp_list()
                 elif command == 299:
                     utm.export_zones_list()
+                    utm.export_interfaces_list()
                     utm.export_gateways_list()
                     utm.export_gateway_failover()
                     utm.export_dhcp_subnets()
@@ -5478,6 +5496,7 @@ def main():
                     utm.export_netflow_profiles_list()
                     utm.export_ssl_profiles_list()
                     utm.export_zones_list()
+                    utm.export_interfaces_list()
                     utm.export_gateways_list()
                     utm.export_gateway_failover()
                     utm.export_dhcp_subnets()

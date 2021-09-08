@@ -514,6 +514,7 @@ class UtmXmlRpc:
 
         for item in result['items']:
             if item['editable']:
+                item['name'] = item['name'].strip()
                 try:
                     if list_type == 'ipspolicy' and self.version.startswith('5'):
                         content = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 5000, {}, [])
@@ -564,7 +565,7 @@ class UtmXmlRpc:
             return 0, result
 
     def add_nlist_item(self, named_list_id, item):
-        """Добавить слова в именованный список"""
+        """Добавить 1 значение в именованный список"""
         try:
             result = self._server.v2.nlists.list.add(self._auth_token, named_list_id, item)
         except TypeError as err:
@@ -574,6 +575,20 @@ class UtmXmlRpc:
                 return 1, f"\t\tСодержимое: {item} не добавлено, так как уже существует."
             else:
                 return 2, f"\t\tОшибка utm.add_nlist_item: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result
+
+    def add_nlist_items(self, named_list_id, items):
+        """Добавить список значений в именованный список"""
+        try:
+            result = self._server.v2.nlists.list.add.items(self._auth_token, named_list_id, items)
+        except TypeError as err:
+            return 2, err
+        except rpc.Fault as err:
+            if err.faultCode == 2001:
+                return 1, f"\tСодержимое: {item} не добавлено, так как уже существует."
+            else:
+                return 2, f'\tОшибка utm.add_nlist_items: [{err.faultCode}] — {err.faultString}'
         else:
             return 0, result
 
