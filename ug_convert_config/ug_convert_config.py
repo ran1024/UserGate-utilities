@@ -4138,13 +4138,15 @@ class UTM(UtmXmlRpc):
             item.pop('protocol', None)
             item.pop('mac', None)
             item.pop('cc', None)
-            if not item['name']:
+            if 'name' in item.keys() and not item['name']:
                 item['name'] = item['ipv4']
             if self.version.startswith('5'):
                 if item['iface']:
                     item['iface'] = item['iface'].replace('eth', 'port', 1)
                 item['is_automatic'] = False
                 item['vrf'] = 'default'
+            if not item['iface']:
+                item['iface'] = 'undefined'
 
         with open("data/network/config_gateways.json", "w") as fd:
             json.dump(data, fd, indent=4, ensure_ascii=False)
@@ -4420,14 +4422,6 @@ class UTM(UtmXmlRpc):
                             print(f'\tИнтерфейс "{item["name"]}" добавлен.')
                     else:
                         print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен так как содержит IP принадлежащий подсети другого интерфейса VPN!\033[0m')
-
-#                _, result = self.get_interfaces_list()
-#                err_list = {}
-#                for item in result:
-#                    if item['kind'] == 'vpn':
-#                        err_list[item['name']] = item['errors']
-#                json_str = json.dumps(err_list, indent=4, ensure_ascii=False)
-#                print(json_str, "\n")
 
         # Импорт интерфейсов VLAN
         for item in data:
