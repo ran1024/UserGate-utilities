@@ -498,9 +498,32 @@ class UtmXmlRpc:
         try:
             result = self._server.v1.netmanager.virtualrouter.update(self._auth_token, rule_id, rule)
         except rpc.Fault as err:
-            return 2, f"\tОшибка utm.add_routers_rule: [{err.faultCode}] — {err.faultString}"
+            return 2, f"\tОшибка utm.update_routers_rule: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result     # Возвращает ID добавленного правила
+
+    def get_ospf_config(self):
+        """Получить конфигурацию OSPF (только для v.5)"""
+        try:
+            data = self._server.v1.netmanager.ospf.router.fetch(self._auth_token, self.node_name)
+            ifaces = self._server.v1.netmanager.ospf.interfaces.list(self._auth_token, self.node_name)
+            areas = self._server.v1.netmanager.ospf.areas.list(self._auth_token, self.node_name)
+        except rpc.Fault as err:
+            print(f"Ошибка utm.get_ospf_config: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return data, ifaces, areas
+
+    def get_bgp_config(self):
+        """Получить конфигурацию BGP (только для v.5)"""
+        try:
+            data = self._server.v1.netmanager.bgp.router.fetch(self._auth_token, self.node_name)
+            neigh = self._server.v1.netmanager.bgp.neighbors.list(self._auth_token, self.node_name)
+            rmaps = self._server.v1.netmanager.bgp.routemaps.list(self._auth_token, self.node_name)
+            filters = self._server.v1.netmanager.bgp.filters.list(self._auth_token, self.node_name)
+        except rpc.Fault as err:
+            print(f"Ошибка utm.get_bgp_config: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return data, neigh, rmaps, filters
 
 ##################################### Библиотека  ######################################
     def get_nlist_list(self, list_type):

@@ -4557,6 +4557,7 @@ class UTM(UtmXmlRpc):
 
     def import_dns_proxy(self):
         """Импортировать настройки DNS прокси"""
+        print('Импорт настроек DNS-прокси раздела "Сеть":')
         try:
             with open("data/network/config_dns_proxy.json", "r") as fh:
                 data = json.load(fh)
@@ -4572,6 +4573,7 @@ class UTM(UtmXmlRpc):
             
     def import_dns_servers(self):
         """Импортировать список системных DNS серверов"""
+        print('Импорт системных DNS серверов раздела "Сеть":')
         try:
             with open("data/network/config_dns_servers.json", "r") as fh:
                 data = json.load(fh)
@@ -4590,6 +4592,7 @@ class UTM(UtmXmlRpc):
 
     def import_dns_rules(self):
         """Импортировать список правил DNS прокси"""
+        print('Импорт списка правил DNS-прокси раздела "Сеть":')
         try:
             with open("data/network/config_dns_rules.json", "r") as fh:
                 data = json.load(fh)
@@ -4612,6 +4615,7 @@ class UTM(UtmXmlRpc):
 
     def import_dns_static(self):
         """Импортировать статические записи DNS прокси"""
+        print('Импорт статических записей DNS-прокси раздела "Сеть":')
         try:
             with open("data/network/config_dns_static.json", "r") as fh:
                 data = json.load(fh)
@@ -4658,6 +4662,7 @@ class UTM(UtmXmlRpc):
 
     def import_wccp_rules(self):
         """Импортировать список правил WCCP"""
+        print('Импорт списка правил WCCP раздела "Сеть":')
         try:
             with open("data/network/config_wccp.json", "r") as fh:
                 data = json.load(fh)
@@ -4714,11 +4719,14 @@ class UTM(UtmXmlRpc):
             item.pop('id', None)
             item.pop('node_name', None)
             item.pop('cc', None)
+            if 'name' in item.keys() and not item['name']:
+                item['name'] = item['dest']
             if self.version.startswith('5'):
                 item.pop('multihop', None)
                 item.pop('vrf', None)
                 item.pop('active', None)
-                item['ifname'] = item.pop('iface_id', 'undefined') if item['iface_id'] else 'undefined'
+                item['ifname'] = item['iface_id'] if item['iface_id'] else 'undefined'
+                item.pop('iface_id', None)
             else:
                 if item['routes']:
                     for x in item['routes']:
@@ -4730,6 +4738,7 @@ class UTM(UtmXmlRpc):
 
     def import_static_routes(self):
         """Импортировать список статических маршрутов"""
+        print('Импорт списка статических маршрутов раздела "Сеть":')
         try:
             with open("data/network/config_routers.json", "r") as fh:
                 data = json.load(fh)
@@ -4746,35 +4755,70 @@ class UTM(UtmXmlRpc):
         if 'routes' not in data[0].keys():
             router = {
                 'name': 'default',
-                'routes': data
+                'routes': data,
+                'ospf': {},
+                'bgp': {},
+                'rip': {},
+                'pimsm': {},
             }
             err, result = self.update_routers_rule(virt_routers['default'], router)
             if err == 2:
                 print(f'\033[31m{result}\033[0m')
             else:
-                print(f'\tСтатические маршруты добавлены.')
+                print(f'\tВиртуальный маршрутизатор "default": Статические маршруты добавлены.')
         else:
             for item in data:
+                item['ospf'] = {}
+                item['bgp'] = {}
+                item['rip'] = {}
+                item['pimsm'] = {}
                 if item['name'] in virt_routers:
-                    item.pop('ospf', None)
-                    item.pop('bgp', None)
-                    item.pop('rip', None)
-                    item.pop('pimsm', None)
                     err, result = self.update_routers_rule(virt_routers[item['name']], item)
                     if err == 2:
                         print(f'\033[31m{result}\033[0m')
                     else:
-                        print(f'\tСтатические маршруты добавлены.')
+                        print(f'\tВиртуальный маршрутизатор "{item["name"]}": Статические маршруты добавлены.')
                 else:
-                    item['ospf'] = {}
-                    item['bgp'] = {}
-                    item['rip'] = {}
-                    item['pimsm'] = {}
                     err, result = self.add_routers_rule(item)
                     if err == 2:
                         print(f'\033[31m{result}\033[0m')
                     else:
                         print(f'\tСоздан виртуальный маршрутизатор "{item["name"]}". Статические маршруты добавлены.')
+
+    def export_ospf_config(self):
+        """Выгрузить конфигурацию OSPF (только для v.5)"""
+        if self.version.startswith('5'):
+            print('Выгружается конфигурация OSPF раздела "Сеть":')
+            if not os.path.isdir('data/network'):
+                os.makedirs('data/network')
+
+            data, ifaces, areas = self.get_ospf_config()
+
+            ospf = {
+                'router': data,
+                'ifaces': ifaces,
+                'areas': areas
+            }
+#            for item in data:
+#                item.pop('id', None)
+#                item.pop('node_name', None)
+#                item.pop('cc', None)
+#                if 'name' in item.keys() and not item['name']:
+#                    item['name'] = item['dest']
+#                if self.version.startswith('5'):
+#                    item.pop('multihop', None)
+#                    item.pop('vrf', None)
+#                    item.pop('active', None)
+#                    item['ifname'] = item['iface_id'] if item['iface_id'] else 'undefined'
+#                    item.pop('iface_id', None)
+#                else:
+#                    if item['routes']:
+#                        for x in item['routes']:
+#                            x.pop('id', None)
+
+            with open("data/network/config_ospf_v5.json", "w") as fd:
+                json.dump(ospf, fd, indent=4, ensure_ascii=False)
+            print(f'\tКонфигурация OSPF выгружена в файл "data/network/config_ospf_v5.json".')
 
 ################################## Служебные функции ###################################
     def set_src_zone_and_ips(self, item):
@@ -5038,6 +5082,8 @@ def menu3(utm, mode, section):
             else:
                 print('7   - Экспортировать список "Виртуальные маршрутизаторы".')
             print('8   - Экспортировать список "WCCP".')
+            if utm.version.startswith('5'):
+                print('9   - Экспортировать конфигурацию OSPF.')
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -5331,6 +5377,8 @@ def main():
                     utm.export_routers_list()
                 elif command == 208:
                     utm.export_wccp_list()
+                elif command == 209:
+                    utm.export_ospf_config()
                 elif command == 299:
                     utm.export_zones_list()
                     utm.export_interfaces_list()
@@ -5340,6 +5388,7 @@ def main():
                     utm.export_dns_config()
                     utm.export_routers_list()
                     utm.export_wccp_list()
+                    utm.export_ospf_config()
 
                 elif command == 301:
                     utm.export_ui()
@@ -5497,6 +5546,7 @@ def main():
                     utm.export_dns_config()
                     utm.export_routers_list()
                     utm.export_wccp_list()
+                    utm.export_ospf_config()
                     utm.export_ui()
                     utm.export_ntp()
                     utm.export_settings()
@@ -5538,8 +5588,8 @@ def main():
                     utm.export_vpn_client_rules()
             except UtmError as err:
                 print(err)
-            except Exception as err:
-                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+#            except Exception as err:
+#                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
             finally:
                 utm.logout()
                 print("\033[32mЭкспорт конфигурации завершён.\033[0m\n")
@@ -5840,8 +5890,8 @@ def main():
                         utm.import_vpn_client_rules()
                 except UtmError as err:
                     print(err)
-                except Exception as err:
-                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+#                except Exception as err:
+#                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
                 except json.JSONDecodeError as err:
                     print(f'\n\033[31mОшибка парсинга файла конфигурации: {err}\033[0m')
                 finally:
@@ -5853,8 +5903,8 @@ def main():
     except KeyboardInterrupt:
         print("\nПрограмма принудительно завершена пользователем.\n")
         utm.logout()
-    except:
-        print("\nПрограмма завершена.\n")
+#    except:
+#        print("\nПрограмма завершена.\n")
 
 if __name__ == '__main__':
     main()
