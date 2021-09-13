@@ -4713,112 +4713,161 @@ class UTM(UtmXmlRpc):
         if not os.path.isdir('data/network'):
             os.makedirs('data/network')
 
+        routers = []
         data = self.get_routers_list()
 
         for item in data:
             item.pop('id', None)
             item.pop('node_name', None)
             item.pop('cc', None)
-            if 'name' in item.keys() and not item['name']:
-                item['name'] = item['dest']
             if self.version.startswith('5'):
+                if 'name' in item.keys() and not item['name']:
+                    item['name'] = item['dest']
                 item.pop('multihop', None)
                 item.pop('vrf', None)
                 item.pop('active', None)
-                item['ifname'] = item['iface_id'] if item['iface_id'] else 'undefined'
+                item['ifname'] = item['iface_id'].replace('eth', 'port', 1) if item['iface_id'] else 'undefined'
                 item.pop('iface_id', None)
             else:
                 if item['routes']:
                     for x in item['routes']:
                         x.pop('id', None)
-
-        with open("data/network/config_routers.json", "w") as fd:
-            json.dump(data, fd, indent=4, ensure_ascii=False)
-        print(f'\tСписок "Статические маршруты" выгружен в файл "data/network/config_routers.json".')
-
-    def import_static_routes(self):
-        """Импортировать список статических маршрутов"""
-        print('Импорт списка статических маршрутов раздела "Сеть":')
-        try:
-            with open("data/network/config_routers.json", "r") as fh:
-                data = json.load(fh)
-        except FileNotFoundError as err:
-            print(f'\t\033[31mСписок маршрутов не импортирован!\n\tНе найден файл "data/network/config_routers.json" с сохранённой конфигурацией!\033[0;0m')
-            return
-
-        if not data:
-            print("\tНет правил статических маршрутов для импорта.")
-            return
-
-        virt_routers = {x['name']: x['id'] for x in self.get_routers_list()}
-
-        if 'routes' not in data[0].keys():
-            router = {
+                if item['ospf']:
+                    item['ospf'].pop('id', None)
+        if self.version.startswith('5'):
+            routers.append({
                 'name': 'default',
                 'routes': data,
                 'ospf': {},
                 'bgp': {},
                 'rip': {},
                 'pimsm': {},
-            }
-            err, result = self.update_routers_rule(virt_routers['default'], router)
-            if err == 2:
-                print(f'\033[31m{result}\033[0m')
-            else:
-                print(f'\tВиртуальный маршрутизатор "default": Статические маршруты добавлены.')
+            })
         else:
-            for item in data:
-                item['ospf'] = {}
-                item['bgp'] = {}
-                item['rip'] = {}
-                item['pimsm'] = {}
-                if item['name'] in virt_routers:
-                    err, result = self.update_routers_rule(virt_routers[item['name']], item)
-                    if err == 2:
-                        print(f'\033[31m{result}\033[0m')
-                    else:
-                        print(f'\tВиртуальный маршрутизатор "{item["name"]}": Статические маршруты добавлены.')
-                else:
-                    err, result = self.add_routers_rule(item)
-                    if err == 2:
-                        print(f'\033[31m{result}\033[0m')
-                    else:
-                        print(f'\tСоздан виртуальный маршрутизатор "{item["name"]}". Статические маршруты добавлены.')
+            routers = data
+
+        with open("data/network/config_routers.json", "w") as fd:
+            json.dump(routers, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Статические маршруты" выгружен в файл "data/network/config_routers.json".')
 
     def export_ospf_config(self):
         """Выгрузить конфигурацию OSPF (только для v.5)"""
         if self.version.startswith('5'):
             print('Выгружается конфигурация OSPF раздела "Сеть":')
+            data = [{
+                    'name': 'default',
+                    'routes': [],
+                    'ospf': {},
+                    'bgp': {},
+                    'rip': {},
+                    'pimsm': {},
+                },]
             if not os.path.isdir('data/network'):
                 os.makedirs('data/network')
+            else:
+                try:
+                    with open("data/network/config_routers.json", "r") as fh:
+                        data = json.load(fh)
+                except FileNotFoundError as err:
+                    pass
 
-            data, ifaces, areas = self.get_ospf_config()
+            ospf, ifaces, areas = self.get_ospf_config()
 
-            ospf = {
-                'router': data,
-                'ifaces': ifaces,
-                'areas': areas
-            }
-#            for item in data:
-#                item.pop('id', None)
-#                item.pop('node_name', None)
-#                item.pop('cc', None)
-#                if 'name' in item.keys() and not item['name']:
-#                    item['name'] = item['dest']
-#                if self.version.startswith('5'):
-#                    item.pop('multihop', None)
-#                    item.pop('vrf', None)
-#                    item.pop('active', None)
-#                    item['ifname'] = item['iface_id'] if item['iface_id'] else 'undefined'
-#                    item.pop('iface_id', None)
-#                else:
-#                    if item['routes']:
-#                        for x in item['routes']:
-#                            x.pop('id', None)
+            ospf['enabled'] = False
+            for item in ifaces:
+                item['iface_id'], _ = item['iface_id'].split(':')
+                item['iface_id'] = item['iface_id'].replace('eth', 'port', 1)
+                item['auth_params'].pop('md5_key', None)
+                item['auth_params'].pop('plain_key', None)
+            for item in areas:
+                item.pop('id', None)
+                item.pop('area_range', None)
 
-            with open("data/network/config_ospf_v5.json", "w") as fd:
-                json.dump(ospf, fd, indent=4, ensure_ascii=False)
-            print(f'\tКонфигурация OSPF выгружена в файл "data/network/config_ospf_v5.json".')
+            ospf['interfaces'] = ifaces
+            ospf['areas'] = areas
+            for item in data:
+                if item['name'] == 'default':
+                    item['ospf'] = ospf
+                    with open("data/network/config_routers.json", "w") as fd:
+                        json.dump(data, fd, indent=4, ensure_ascii=False)
+                    print(f'\tКонфигурация OSPF выгружена в файл "data/network/config_routers.json".')
+                    break
+
+    def export_bgp_config(self):
+        """Выгрузить конфигурацию BGP (только для v.5)"""
+        if self.version.startswith('5'):
+            print('Выгружается конфигурация BGP раздела "Сеть":')
+            data = [{
+                    'name': 'default',
+                    'routes': [],
+                    'ospf': {},
+                    'bgp': {},
+                    'rip': {},
+                    'pimsm': {},
+                },]
+            if not os.path.isdir('data/network'):
+                os.makedirs('data/network')
+            else:
+                try:
+                    with open("data/network/config_routers.json", "r") as fh:
+                        data = json.load(fh)
+                except FileNotFoundError as err:
+                    pass
+
+            bgp, neigh, rmaps, filters = self.get_bgp_config()
+
+            bgp['enabled'] = False
+            bgp.pop('id', None)
+            bgp.pop('strict_ip', None)
+            bgp.pop('multiple_asn', None)
+            for item in rmaps:
+                item.pop('position', None)
+                item['match_items'] = [x[:-4] for x in item['match_items']]
+            for item in filters:
+                item.pop('position', None)
+                item['filter_items'] = [x[:-4] for x in item['filter_items']]
+            for item in neigh:
+                item.pop('iface_id', None)
+            bgp['routemaps'] = rmaps
+            bgp['filters'] = filters
+            bgp['neighbors'] = neigh
+            for item in data:
+                if item['name'] == 'default':
+                    item['bgp'] = bgp
+                    with open("data/network/config_routers.json", "w") as fd:
+                        json.dump(data, fd, indent=4, ensure_ascii=False)
+                    print(f'\tКонфигурация BGP выгружена в файл "data/network/config_routers.json".')
+                    break
+
+    def import_virt_routes(self):
+        """Импортировать список виртуальных маршрутизаторов"""
+        print(f'Импорт списка "Виртуальные маршрутизаторы" раздела "Сеть":')
+        try:
+            with open("data/network/config_routers.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mВиртуальные маршрутизаторы не импортированы!\n\tНе найден файл "data/network/config_routers.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print('\tНет данных для импорта. Файл "data/network/config_routers.json" пуст.')
+            return
+
+        virt_routers = {x['name']: x['id'] for x in self.get_routers_list()}
+
+        for item in data:
+            if item['name'] in virt_routers:
+                err, result = self.update_routers_rule(virt_routers[item['name']], item)
+                if err == 2:
+                    print(f'\033[31m{result}\033[0m')
+                else:
+                    print(f'\tВиртуальный маршрутизатор "{item["name"]}" - \033[32mUpdated!\033[0m')
+            else:
+                err, result = self.add_routers_rule(item)
+                if err == 2:
+                    print(f'\033[31m{result}\033[0m')
+                else:
+                    print(f'\tСоздан виртуальный маршрутизатор "{item["name"]}".')
 
 ################################## Служебные функции ###################################
     def set_src_zone_and_ips(self, item):
@@ -5079,11 +5128,11 @@ def menu3(utm, mode, section):
             print('6   - Экспортировать настройки DNS.')
             if utm.version.startswith('5'):
                 print('7   - Экспортировать список "Маршруты".')
+                print('8   - Экспортировать конфигурацию OSPF.')
+                print('9   - Экспортировать конфигурацию BGP.')
             else:
                 print('7   - Экспортировать список "Виртуальные маршрутизаторы".')
-            print('8   - Экспортировать список "WCCP".')
-            if utm.version.startswith('5'):
-                print('9   - Экспортировать конфигурацию OSPF.')
+            print('10   - Экспортировать список "WCCP".')
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -5182,7 +5231,7 @@ def menu3(utm, mode, section):
             print('4   - Импортировать настройки "Проверка сети".')
             print('5   - Импортировать список подсетей DHCP.')
             print('6   - Импортировать настройки DNS.')
-            print('7   - Импортировать статические маршруты.')
+            print('7   - Импортировать список "Виртуальные маршрутизаторы".')
             print('8   - Импортировать список "WCCP".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
@@ -5376,9 +5425,11 @@ def main():
                 elif command == 207:
                     utm.export_routers_list()
                 elif command == 208:
-                    utm.export_wccp_list()
-                elif command == 209:
                     utm.export_ospf_config()
+                elif command == 209:
+                    utm.export_bgp_config()
+                elif command == 210:
+                    utm.export_wccp_list()
                 elif command == 299:
                     utm.export_zones_list()
                     utm.export_interfaces_list()
@@ -5387,8 +5438,9 @@ def main():
                     utm.export_dhcp_subnets()
                     utm.export_dns_config()
                     utm.export_routers_list()
-                    utm.export_wccp_list()
                     utm.export_ospf_config()
+                    utm.export_bgp_config()
+                    utm.export_wccp_list()
 
                 elif command == 301:
                     utm.export_ui()
@@ -5545,8 +5597,9 @@ def main():
                     utm.export_dhcp_subnets()
                     utm.export_dns_config()
                     utm.export_routers_list()
-                    utm.export_wccp_list()
                     utm.export_ospf_config()
+                    utm.export_bgp_config()
+                    utm.export_wccp_list()
                     utm.export_ui()
                     utm.export_ntp()
                     utm.export_settings()
@@ -5588,8 +5641,8 @@ def main():
                     utm.export_vpn_client_rules()
             except UtmError as err:
                 print(err)
-#            except Exception as err:
-#                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+            except Exception as err:
+                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
             finally:
                 utm.logout()
                 print("\033[32mЭкспорт конфигурации завершён.\033[0m\n")
@@ -5665,7 +5718,7 @@ def main():
                     elif command == 206:
                         utm.import_dns_config()
                     elif command == 207:
-                        utm.import_static_routes()
+                        utm.import_virt_routes()
                     elif command == 208:
                         utm.import_wccp_rules()
                     elif command == 299:
@@ -5675,7 +5728,7 @@ def main():
                         utm.import_gateway_failover()
                         utm.import_dhcp_subnets()
                         utm.import_dns_config()
-                        utm.import_static_routes()
+                        utm.import_virt_routes()
                         utm.import_wccp_rules()
 
                     elif command == 301:
@@ -5843,7 +5896,7 @@ def main():
                         utm.import_gateway_failover()
                         utm.import_dhcp_subnets()
                         utm.import_dns_config()
-                        utm.import_static_routes()
+                        utm.import_virt_routes()
                         utm.import_wccp_rules()
                         utm.import_ui()
                         utm.import_ntp()
@@ -5890,8 +5943,8 @@ def main():
                         utm.import_vpn_client_rules()
                 except UtmError as err:
                     print(err)
-#                except Exception as err:
-#                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+                except Exception as err:
+                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
                 except json.JSONDecodeError as err:
                     print(f'\n\033[31mОшибка парсинга файла конфигурации: {err}\033[0m')
                 finally:
@@ -5903,8 +5956,8 @@ def main():
     except KeyboardInterrupt:
         print("\nПрограмма принудительно завершена пользователем.\n")
         utm.logout()
-#    except:
-#        print("\nПрограмма завершена.\n")
+    except:
+        print("\nПрограмма завершена.\n")
 
 if __name__ == '__main__':
     main()

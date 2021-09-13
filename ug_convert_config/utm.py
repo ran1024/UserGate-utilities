@@ -489,7 +489,12 @@ class UtmXmlRpc:
         try:
             result = self._server.v1.netmanager.virtualrouter.add(self._auth_token, rule)
         except rpc.Fault as err:
-            return 2, f"\tОшибка utm.add_routers_rule: [{err.faultCode}] — {err.faultString}"
+            if err.faultCode == 1015:
+                return 2, f'\tВ виртуальном маршрутизаторе "{rule["name"]}" указан несуществующий порт: {rule["interfaces"]}.'
+            elif err.faultCode == 1016:
+                return 2, f'\tВ виртуальном маршрутизаторе "{rule["name"]}" указан порт использующийся в другом маршрутизаторе: {rule["interfaces"]}.'
+            else:
+                return 2, f"\tОшибка utm.add_routers_rule: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result     # Возвращает ID добавленного правила
 
@@ -498,6 +503,8 @@ class UtmXmlRpc:
         try:
             result = self._server.v1.netmanager.virtualrouter.update(self._auth_token, rule_id, rule)
         except rpc.Fault as err:
+            if err.faultCode == 1020:
+                return 2, f'\tВ виртуальном маршрутизаторе "{rule["name"]}" указан порт использующийся в другом маршрутизаторе: {rule["interfaces"]} [{err.faultString}]'
             return 2, f"\tОшибка utm.update_routers_rule: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result     # Возвращает ID добавленного правила
