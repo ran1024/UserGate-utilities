@@ -368,7 +368,10 @@ class UtmXmlRpc:
         try:
             result = self._server.v1.netmanager.interface.add.vpn(self._auth_token, 'cluster', vpn['name'], vpn)
         except rpc.Fault as err:
-            return 2, f"\tОшибка utm.add_interface_vpn: [{err.faultCode}] — {err.faultString}"
+            if err.faultCode == 18004:
+                return 2, f'\tИнтерфейс {vpn["name"]} пропущен так как содержит IP принадлежащий подсети другого интерфейса VPN!.'
+            else:
+                return 2, f'\tОшибка utm.add_interface_vpn: [{err.faultCode}] — {err.faultString}'
         else:
             return 0, result     # Возвращает ID добавленного правила
 
@@ -1986,5 +1989,60 @@ class UtmXmlRpc:
             return 2, f"\tОшибка utm.update_vpn_client_rule: [{err.faultCode}] — {err.faultString}"
         else:
             return 0, result     # Возвращает True
+
+########################################### Оповещения ###########################################
+    def get_snmp_rules(self):
+        """Получить список правил SNMP"""
+        try:
+            result = self._server.v1.snmp.rules.list(self._auth_token)
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_vpn_client_rules: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return result
+
+    def add_snmp_rule(self, rule):
+        """Добавить новое правило SNMP"""
+        try:
+            result = self._server.v1.snmp.rule.add(self._auth_token, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_snmp_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def update_snmp_rule(self, rule_id, rule):
+        """Обновить правило SNMP"""
+        try:
+            result = self._server.v1.snmp.rule.update(self._auth_token, rule_id, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.update_snmp_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID изменённого правила
+
+    def get_notification_alert_rules(self):
+        """Получить список правил оповещений"""
+        try:
+            result = self._server.v1.notification.alert.rules.list(self._auth_token, 0, 100, {})
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_notification_alert_rules: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return result
+
+    def add_notification_alert_rule(self, rule):
+        """Добавить новое правило SNMP"""
+        try:
+            result = self._server.v1.notification.alert.rule.add(self._auth_token, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_notification_alert_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
+
+    def update_notification_alert_rule(self, rule_id, rule):
+        """Обновить правило SNMP"""
+        try:
+            result = self._server.v1.notification.alert.rule.update(self._auth_token, rule_id, rule)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.update_notification_alert_rule: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID изменённого правила
 
 class UtmError(Exception): pass

@@ -4869,6 +4869,122 @@ class UTM(UtmXmlRpc):
                 else:
                     print(f'\tСоздан виртуальный маршрутизатор "{item["name"]}".')
 
+##################################### Оповещения #######################################
+    def export_snmp_rules(self):
+        """Выгрузить список правил SNMP"""
+        print('Выгружается список правил SNMP раздела "Диагностика и мониторинг/Оповещения":')
+        if not os.path.isdir('data/notifications'):
+            os.makedirs('data/notifications')
+
+        data = self.get_snmp_rules()
+
+        for item in data:
+            item.pop('id', None)
+
+        with open("data/notifications/config_snmp_rules.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок правил SNMP выгружен в файл "data/notifications/config_snmp_rules.json".')
+
+    def import_snmp_rules(self):
+        """Импортировать список правил SNMP"""
+        print('Импорт списка правил SNMP раздела "Диагностика и мониторинг/Оповещения":')
+        try:
+            with open("data/notifications/config_snmp_rules.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок правил SNMP не импортирован!\n\tНе найден файл "data/notifications/config_snmp_rules.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        snmp_rules = {x['name']: x['id'] for x in self.get_snmp_rules()}
+
+        for item in data:
+            if item['name'] in snmp_rules:
+                err, result = self.update_snmp_rule(snmp_rules[item['name']], item)
+                if err == 2:
+                    print(f'\033[31m{result}\033[0m')
+                else:
+                    print(f'\tПравило SNMP "{item["name"]}" - \033[32mUpdated!\033[0m')
+            else:
+                err, result = self.add_snmp_rule(item)
+                if err == 2:
+                    print(f'\033[31m{result}\033[0m')
+                else:
+                    print(f'\tСоздано правило SNMP "{item["name"]}".')
+            if item['auth_type']:
+                print(f'\t\033[36mВ правиле "{item["name"]}" используется SNMP v3.\n\tПароли не переносятся, поэтому заново введите пароль для аутентификации и шифрования.\033[0m')
+
+    def export_notification_alert_rules(self):
+        """Выгрузить список правил оповещений"""
+        print('Выгружается список "Правила оповещений" раздела "Диагностика и мониторинг/Оповещения":')
+        if not os.path.isdir('data/notifications'):
+            os.makedirs('data/notifications')
+
+        _, email_group = self.get_nlist_list('emailgroup')
+        _, phone_group = self.get_nlist_list('phonegroup')
+        email_group = {x['id']: x['name'] for x in email_group}
+        phone_group = {x['id']: x['name'] for x in phone_group}
+
+        data = self.get_notification_alert_rules()
+
+        for item in data:
+            item.pop('id', None)
+            item['notification_profile_id'] = self.list_notifications[item['notification_profile_id']]
+            item['emails'] = [[x[0], email_group[x[1]]] for x in item['emails']]
+            item['phones'] = [[x[0], phone_group[x[1]]] for x in item['phones']]
+
+        with open("data/notifications/config_alert_rules.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Правила оповещений" выгружен в файл "data/notifications/config_alert_rules.json".')
+
+    def import_notification_alert_rules(self):
+        """Импортировать список правил оповещений"""
+        print('Импорт списка "Правила оповещений" раздела "Диагностика и мониторинг/Оповещения":')
+        try:
+            with open("data/notifications/config_alert_rules.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print(f'\t\033[31mСписок "Правила оповещений" не импортирован!\n\tНе найден файл "data/notifications/config_alert_rules.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        _, email_group = self.get_nlist_list('emailgroup')
+        _, phone_group = self.get_nlist_list('phonegroup')
+        email_group = {x['name']: x['id'] for x in email_group}
+        phone_group = {x['name']: x['id'] for x in phone_group}
+        alert_rules = {x['name']: x['id'] for x in self.get_notification_alert_rules()}
+
+        for item in data:
+            alert = False
+            try:
+                item['notification_profile_id'] = self.list_notifications[item['notification_profile_id']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден профиль оповещений {err} для правила "{item["name"]}".\n\tЗагрузите профили оповещений и повторите попытку.\033[0m')
+                alert = True
+            try:
+                item['emails'] = [[x[0], email_group[x[1]]] for x in item['emails']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найдена группа почтовых адресов  {err} для правила "{item["name"]}".\n\tЗагрузите почтовые адреса и повторите попытку.\033[0m')
+                alert = True
+            try:
+                item['phones'] = [[x[0], phone_group[x[1]]] for x in item['phones']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найдена группа телефонных номеров {err} для правила "{item["name"]}".\n\tЗагрузите номера телефонов и повторите попытку.\033[0m')
+                alert = True
+            if alert:
+                print(f'\t\033[31mСписок оповещения "{item["name"]}" не импортирован!\033[0m')
+            else:
+                if item['name'] in alert_rules:
+                    err, result = self.update_notification_alert_rule(alert_rules[item['name']], item)
+                    if err == 2:
+                        print(f'\033[31m{result}\033[0m')
+                    else:
+                        print(f'\tПравило оповещения "{item["name"]}" - \033[32mUpdated!\033[0m')
+                else:
+                    err, result = self.add_notification_alert_rule(item)
+                    if err == 2:
+                        print(f'\033[31m{result}\033[0m')
+                    else:
+                        print(f'\tСоздано правило оповещения "{item["name"]}".')
+
 ################################## Служебные функции ###################################
     def set_src_zone_and_ips(self, item):
         if 'src_zones' in item.keys():
@@ -5073,6 +5189,7 @@ def menu2(utm, mode):
     print("6   - Политики безопасности")
     print("7   - Глобальный портал")
     print("8   - VPN")
+    print("9   - Диагностика и мониторинг/Оповещения")
     print("\033[36m99  - Выбрать всё.\033[0m")
     print("\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m")
     print("\033[33m0   - Выход.\033[0m")
@@ -5080,7 +5197,7 @@ def menu2(utm, mode):
         try:
             section = int(input(f"\nВведите номер раздела для {'экспорта' if mode == 1 else 'импорта'}: "))
             print("")
-            if section not in [0, 1, 2, 3, 4, 5, 6, 7, 8, 99, 999]:
+            if section not in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 99, 999]:
                 print("Вы ввели номер несуществующего раздела.")
             elif section == 0:
                 sys.exit()
@@ -5200,6 +5317,12 @@ def menu3(utm, mode, section):
             print('\033[36m99  - Экспортировать весь раздел "VPN".\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
+        elif section == 9:
+            print('1   - Экспортировать список "SNMP" раздела "Диагностика и мониторинг/Оповещения".')
+            print('2   - Экспортировать список "Правила оповещений" раздела "Диагностика и мониторинг/Оповещения".')
+            print('\033[36m99  - Экспортировать весь раздел "VPN".\033[0m')
+            print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
+            print("\033[33m0   - Выход.\033[0m")
     else:
         if section == 1:
             print("1   - Импортировать списки морфологии.")
@@ -5299,6 +5422,13 @@ def menu3(utm, mode, section):
             print('2   - Импортировать список "Сети VPN" раздела "VPN".')
             print('3   - Импортировать список "Серверные правила" раздела "VPN".')
             print('4   - Импортировать список "Клиентские правила" раздела "VPN".')
+            print('\033[36m99  - Импортировать всё.\033[0m')
+            print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
+            print("\033[33m0   - Выход.\033[0m")
+            export_snmp_rules(self)
+        elif section == 9:
+            print('1   - Импортировать список правил "SNMP" раздела "Диагностика и мониторинг/Оповещения".')
+            print('2   - Импортировать список "Правила оповещений" раздела "Диагностика и мониторинг/Оповещения".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -5571,6 +5701,14 @@ def main():
                     utm.export_vpn_server_rules()
                     utm.export_vpn_client_rules()
 
+                elif command == 901:
+                    utm.export_snmp_rules()
+                elif command == 902:
+                    utm.export_notification_alert_rules()
+                elif command == 999:
+                    utm.export_snmp_rules()
+                    utm.export_notification_alert_rules()
+
                 elif command == 9999:
                     utm.export_morphology_lists()
                     utm.export_services_list()
@@ -5639,6 +5777,8 @@ def main():
                     utm.export_vpn_networks()
                     utm.export_vpn_server_rules()
                     utm.export_vpn_client_rules()
+                    utm.export_snmp_rules()
+                    utm.export_notification_alert_rules()
             except UtmError as err:
                 print(err)
             except Exception as err:
@@ -5870,7 +6010,15 @@ def main():
                         utm.import_vpn_networks()
                         utm.import_vpn_server_rules()
                         utm.import_vpn_client_rules()
-                        
+
+                    elif command == 901:
+                        utm.import_snmp_rules()
+                    elif command == 902:
+                        utm.import_notification_alert_rules()
+                    elif command == 999:
+                        utm.import_snmp_rules()
+                        utm.import_notification_alert_rules()
+
                     elif command == 9999:
                         utm.import_morphology()
                         utm.import_services()
@@ -5941,6 +6089,8 @@ def main():
                         utm.import_vpn_networks()
                         utm.import_vpn_server_rules()
                         utm.import_vpn_client_rules()
+                        utm.import_snmp_rules()
+                        utm.import_notification_alert_rules()
                 except UtmError as err:
                     print(err)
                 except Exception as err:
