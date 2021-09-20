@@ -1266,8 +1266,8 @@ class UTM(UtmXmlRpc):
                 data['response_pages_ssl_profile_id'] = self.list_ssl_profiles[data['response_pages_ssl_profile_id']]
             except KeyError as err:
                 print(f'\t\033[33mНе найден профиль SSL {err}".\n\tЗагрузите профили SSL и повторите попытку.\033[0m')
-                data.pop('web_console_ssl_profile_id')
-                data.pop('response_pages_ssl_profile_id')
+                data.pop('web_console_ssl_profile_id', None)
+                data.pop('response_pages_ssl_profile_id', None)
 
         for key, value in data.items():
             err, result = self.set_settings_param(key, value)
@@ -5781,8 +5781,8 @@ def main():
                     utm.export_notification_alert_rules()
             except UtmError as err:
                 print(err)
-            except Exception as err:
-                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+#            except Exception as err:
+#                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
             finally:
                 utm.logout()
                 print("\033[32mЭкспорт конфигурации завершён.\033[0m\n")
@@ -6093,8 +6093,8 @@ def main():
                         utm.import_notification_alert_rules()
                 except UtmError as err:
                     print(err)
-                except Exception as err:
-                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+#                except Exception as err:
+#                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
                 except json.JSONDecodeError as err:
                     print(f'\n\033[31mОшибка парсинга файла конфигурации: {err}\033[0m')
                 finally:
@@ -6106,8 +6106,8 @@ def main():
     except KeyboardInterrupt:
         print("\nПрограмма принудительно завершена пользователем.\n")
         utm.logout()
-    except:
-        print("\nПрограмма завершена.\n")
+#    except:
+#        print("\nПрограмма завершена.\n")
 
 if __name__ == '__main__':
     main()
