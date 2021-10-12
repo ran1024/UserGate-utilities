@@ -238,6 +238,10 @@ class UTM(UtmXmlRpc):
 
         total, data = self.get_nlist_list('morphology')
 
+        if not data:
+            print("\tНет пользовательских списков морфологии для зкспорта.")
+            return
+
         for item in data:
             if self.version.startswith('5'):
                 attributes = {}
@@ -1260,14 +1264,13 @@ class UTM(UtmXmlRpc):
             'response_pages_ssl_profile_id': 'Профиль SSL для страниц блокировки/авторизации',
         }
 
-        if self.version.startswith('6'):
-            try:
-                data['web_console_ssl_profile_id'] = self.list_ssl_profiles[data['web_console_ssl_profile_id']]
-                data['response_pages_ssl_profile_id'] = self.list_ssl_profiles[data['response_pages_ssl_profile_id']]
-            except KeyError as err:
-                print(f'\t\033[33mНе найден профиль SSL {err}".\n\tЗагрузите профили SSL и повторите попытку.\033[0m')
-                data.pop('web_console_ssl_profile_id', None)
-                data.pop('response_pages_ssl_profile_id', None)
+        try:
+            data['web_console_ssl_profile_id'] = self.list_ssl_profiles[data['web_console_ssl_profile_id']]
+            data['response_pages_ssl_profile_id'] = self.list_ssl_profiles[data['response_pages_ssl_profile_id']]
+        except KeyError as err:
+            print(f'\t\033[33mНе найден профиль SSL {err}".\n\tЗагрузите профили SSL и повторите попытку.\033[0m')
+            data.pop('web_console_ssl_profile_id', None)
+            data.pop('response_pages_ssl_profile_id', None)
 
         for key, value in data.items():
             err, result = self.set_settings_param(key, value)
@@ -4418,7 +4421,7 @@ class UTM(UtmXmlRpc):
                             print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен!\033[0m')
                             print(f"\033[31m{result}\033[0m")
                         else:
-                            interfaces_list[item['name']] = 'tunnel'
+                            interfaces_list[item['name']] = 'vpn'
                             print(f'\tИнтерфейс "{item["name"]}" добавлен.')
                     else:
                         print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен так как содержит IP принадлежащий подсети другого интерфейса VPN!\033[0m')
@@ -4466,7 +4469,6 @@ class UTM(UtmXmlRpc):
                         print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен, так как ссылается на интерфейс "{item["link"]}" с недопустимым типом!\033[0m')
                 else:
                     print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен, так как ссылается на slave-порт принадлежащий другому интерфейсу!\033[0m')
-
 
 ################### DHCP #################################
     def export_dhcp_subnets(self):
@@ -5169,6 +5171,7 @@ def menu1(utm):
             if mode not in [0, 1, 2]:
                 print("Вы ввели несуществующую команду.")
             elif mode == 0:
+                utm.logout()
                 sys.exit()
             else:
                 return mode
@@ -5200,6 +5203,7 @@ def menu2(utm, mode):
             if section not in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 99, 999]:
                 print("Вы ввели номер несуществующего раздела.")
             elif section == 0:
+                utm.logout()
                 sys.exit()
             else:
                 return section
@@ -5439,11 +5443,661 @@ def menu3(utm, mode, section):
             if command not in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 99, 999]:
                 print("Вы ввели несуществующую команду.")
             elif command == 0:
+                utm.logout()
                 sys.exit()
             else:
                 return command
         except ValueError:
             print("Ошибка! Введите число.")
+
+def executor(utm, mode, section, command):
+    command = section * 100 + command
+    utm.init_struct()
+    if mode == 1:
+        if not os.path.isdir('data'):
+            os.mkdir('data')
+            print("Создана директория 'data' в текущем каталоге.")
+        utm.init_struct_for_export()
+        try:
+            if command == 101:
+                utm.export_morphology_lists()
+            elif command == 102:
+                utm.export_services_list()
+            elif command == 103:
+                utm.export_IP_lists()
+            elif command == 104:
+                utm.export_useragent_lists()
+            elif command == 105:
+                utm.export_mime_lists()
+            elif command == 106:
+                utm.export_url_lists()
+            elif command == 107:
+                utm.export_time_restricted_lists()
+            elif command == 108:
+                utm.export_shaper_list()
+            elif command == 109:
+                utm.export_scada_list()
+            elif command == 110:
+                utm.export_templates_list()
+            elif command == 111:
+                utm.export_categories_groups()
+            elif command == 112:
+                utm.export_application_groups()
+            elif command == 113:
+                utm.export_nlist_groups('emailgroup')
+            elif command == 114:
+                utm.export_nlist_groups('phonegroup')
+            elif command == 115:
+                utm.export_ips_profiles()
+            elif command == 116:
+                utm.export_notification_profiles_list()
+            elif command == 117:
+                utm.export_netflow_profiles_list()
+            elif command == 118:
+                utm.export_ssl_profiles_list()
+            elif command == 199:
+                utm.export_morphology_lists()
+                utm.export_services_list()
+                utm.export_IP_lists()
+                utm.export_useragent_lists()
+                utm.export_mime_lists()
+                utm.export_url_lists()
+                utm.export_time_restricted_lists()
+                utm.export_shaper_list()
+                utm.export_scada_list()
+                utm.export_templates_list()
+                utm.export_categories_groups()
+                utm.export_application_groups()
+                utm.export_nlist_groups('emailgroup')
+                utm.export_nlist_groups('phonegroup')
+                utm.export_ips_profiles()
+                utm.export_notification_profiles_list()
+                utm.export_netflow_profiles_list()
+                utm.export_ssl_profiles_list()
+
+            elif command == 201:
+                utm.export_zones_list()
+            elif command == 202:
+                utm.export_interfaces_list()
+            elif command == 203:
+                utm.export_gateways_list()
+            elif command == 204:
+                utm.export_gateway_failover()
+            elif command == 205:
+                utm.export_dhcp_subnets()
+            elif command == 206:
+                utm.export_dns_config()
+            elif command == 207:
+                utm.export_routers_list()
+            elif command == 208:
+                utm.export_ospf_config()
+            elif command == 209:
+                utm.export_bgp_config()
+            elif command == 210:
+                utm.export_wccp_list()
+            elif command == 299:
+                utm.export_zones_list()
+                utm.export_interfaces_list()
+                utm.export_gateways_list()
+                utm.export_gateway_failover()
+                utm.export_dhcp_subnets()
+                utm.export_dns_config()
+                utm.export_routers_list()
+                utm.export_ospf_config()
+                utm.export_bgp_config()
+                utm.export_wccp_list()
+
+            elif command == 301:
+                utm.export_ui()
+            elif command == 302:
+                utm.export_ntp()
+            elif command == 303:
+                utm.export_settings()
+            elif command == 304:
+                utm.export_proxy_portal()
+            elif command == 305:
+                utm.export_admin_profiles_list()
+            elif command == 306:
+                utm.export_admin_config()
+            elif command == 307:
+                utm.export_admins_list()
+            elif command == 308:
+                utm.export_certivicates_list()
+            elif command == 399:
+                utm.export_ui()
+                utm.export_ntp()
+                utm.export_settings()
+                utm.export_proxy_portal()
+                utm.export_admin_profiles_list()
+                utm.export_admin_config()
+                utm.export_admins_list()
+                utm.export_certivicates_list()
+
+            elif command == 401:
+                utm.export_groups_lists()
+            elif command == 402:
+                utm.export_users_lists()
+            elif command == 403:
+                utm.export_2fa_profiles()
+            elif command == 404:
+                utm.export_auth_servers()
+            elif command == 405:
+                utm.export_auth_profiles()
+            elif command == 406:
+                utm.export_captive_profiles()
+            elif command == 407:
+                utm.export_captive_portal_rules()
+            elif command == 408:
+                utm.export_byod_policy()
+            elif command == 499:
+                utm.export_groups_lists()
+                utm.export_users_lists()
+                utm.export_2fa_profiles()
+                utm.export_auth_servers()
+                utm.export_auth_profiles()
+                utm.export_captive_profiles()
+                utm.export_captive_portal_rules()
+                utm.export_byod_policy()
+
+            elif command == 501:
+                utm.export_firewall_rules()
+            elif command == 502:
+                utm.export_nat_rules()
+            elif command == 503:
+                utm.export_loadbalancing_rules()
+            elif command == 504:
+                utm.export_shaper_rules()
+            elif command == 599:
+                utm.export_firewall_rules()
+                utm.export_nat_rules()
+                utm.export_loadbalancing_rules()
+                utm.export_shaper_rules()
+
+            elif command == 601:
+                utm.export_content_rules()
+            elif command == 602:
+                utm.export_safebrowsing_rules()
+            elif command == 603:
+                utm.export_ssldecrypt_rules()
+            elif command == 604:
+                utm.export_sshdecrypt_rules()
+            elif command == 605:
+                utm.export_idps_rules()
+            elif command == 606:
+                utm.export_scada_rules()
+            elif command == 607:
+                utm.export_scenarios()
+            elif command == 608:
+                utm.export_mailsecurity_rules()
+            elif command == 609:
+                utm.export_icap_servers()
+            elif command == 610:
+                utm.export_icap_rules()
+            elif command == 611:
+                utm.export_dos_profiles()
+            elif command == 612:
+                utm.export_dos_rules()
+            elif command == 699:
+                utm.export_content_rules()
+                utm.export_safebrowsing_rules()
+                utm.export_ssldecrypt_rules()
+                utm.export_sshdecrypt_rules()
+                utm.export_idps_rules()
+                utm.export_scada_rules()
+                utm.export_scenarios()
+                utm.export_mailsecurity_rules()
+                utm.export_icap_servers()
+                utm.export_icap_rules()
+                utm.export_dos_profiles()
+                utm.export_dos_rules()
+
+            elif command == 701:
+                utm.export_proxyportal_rules()
+            elif command == 702:
+                utm.export_reverseproxy_servers()
+            elif command == 703:
+                utm.export_reverseproxy_rules()
+            elif command == 799:
+                utm.export_proxyportal_rules()
+                utm.export_reverseproxy_servers()
+                utm.export_reverseproxy_rules()
+
+            elif command == 801:
+                utm.export_vpn_security_profiles()
+            elif command == 802:
+                utm.export_vpn_networks()
+            elif command == 803:
+                utm.export_vpn_server_rules()
+            elif command == 804:
+                utm.export_vpn_client_rules()
+            elif command == 899:
+                utm.export_vpn_security_profiles()
+                utm.export_vpn_networks()
+                utm.export_vpn_server_rules()
+                utm.export_vpn_client_rules()
+
+            elif command == 901:
+                utm.export_snmp_rules()
+            elif command == 902:
+                utm.export_notification_alert_rules()
+            elif command == 999:
+                utm.export_snmp_rules()
+                utm.export_notification_alert_rules()
+
+            elif command == 9999:
+                utm.export_morphology_lists()
+                utm.export_services_list()
+                utm.export_IP_lists()
+                utm.export_useragent_lists()
+                utm.export_mime_lists()
+                utm.export_url_lists()
+                utm.export_time_restricted_lists()
+                utm.export_shaper_list()
+                utm.export_scada_list()
+                utm.export_templates_list()
+                utm.export_categories_groups()
+                utm.export_application_groups()
+                utm.export_nlist_groups('emailgroup')
+                utm.export_nlist_groups('phonegroup')
+                utm.export_ips_profiles()
+                utm.export_notification_profiles_list()
+                utm.export_netflow_profiles_list()
+                utm.export_ssl_profiles_list()
+                utm.export_zones_list()
+                utm.export_interfaces_list()
+                utm.export_gateways_list()
+                utm.export_gateway_failover()
+                utm.export_dhcp_subnets()
+                utm.export_dns_config()
+                utm.export_routers_list()
+                utm.export_ospf_config()
+                utm.export_bgp_config()
+                utm.export_wccp_list()
+                utm.export_ui()
+                utm.export_ntp()
+                utm.export_settings()
+                utm.export_proxy_portal()
+                utm.export_admin_profiles_list()
+                utm.export_admin_config()
+                utm.export_admins_list()
+                utm.export_certivicates_list()
+                utm.export_groups_lists()
+                utm.export_users_lists()
+                utm.export_2fa_profiles()
+                utm.export_auth_servers()
+                utm.export_auth_profiles()
+                utm.export_captive_profiles()
+                utm.export_captive_portal_rules()
+                utm.export_byod_policy()
+                utm.export_firewall_rules()
+                utm.export_nat_rules()
+                utm.export_loadbalancing_rules()
+                utm.export_shaper_rules()
+                utm.export_content_rules()
+                utm.export_safebrowsing_rules()
+                utm.export_ssldecrypt_rules()
+                utm.export_sshdecrypt_rules()
+                utm.export_idps_rules()
+                utm.export_scada_rules()
+                utm.export_scenarios()
+                utm.export_mailsecurity_rules()
+                utm.export_icap_servers()
+                utm.export_icap_rules()
+                utm.export_dos_profiles()
+                utm.export_dos_rules()
+                utm.export_proxyportal_rules()
+                utm.export_reverseproxy_servers()
+                utm.export_reverseproxy_rules()
+                utm.export_vpn_security_profiles()
+                utm.export_vpn_networks()
+                utm.export_vpn_server_rules()
+                utm.export_vpn_client_rules()
+                utm.export_snmp_rules()
+                utm.export_notification_alert_rules()
+        except UtmError as err:
+            print(err)
+            utm.logout()
+            sys.exit()
+        except Exception as err:
+            print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+            utm.logout()
+            sys.exit()
+        finally:
+            print("\033[32mЭкспорт конфигурации завершён.\033[0m\n")
+            while True:
+                input_value = input("\nНажмите пробел для возврата в меню: ")
+                if input_value == " ":
+                    break
+    else:
+        if utm.version.startswith('6'):
+            utm.init_struct_for_import()
+            try:
+                if command == 101:
+                    utm.import_morphology()
+                elif command == 102:
+                    utm.import_services()
+                elif command == 103:
+                    utm.import_IP_lists()
+                elif command == 104:
+                    utm.import_useragent_lists()
+                elif command == 105:
+                    utm.import_mime_lists()
+                elif command == 106:
+                    utm.import_url_lists()
+                elif command == 107:
+                    utm.import_time_restricted_lists()
+                elif command == 108:
+                    utm.import_shaper()
+                elif command == 109:
+                    utm.import_scada_list()
+                elif command == 110:
+                    utm.import_templates_list()
+                elif command == 111:
+                    utm.import_categories_groups()
+                elif command == 112:
+                    utm.import_application_groups()
+                elif command == 113:
+                    utm.import_nlist_groups('emailgroup')
+                elif command == 114:
+                    utm.import_nlist_groups('phonegroup')
+                elif command == 115:
+                    utm.import_ips_profiles()
+                elif command == 116:
+                    utm.import_notification_profiles()
+                elif command == 117:
+                    utm.import_netflow_profiles()
+                elif command == 118:
+                    utm.import_ssl_profiles()
+                elif command == 199:
+                    utm.import_morphology()
+                    utm.import_services()
+                    utm.import_IP_lists()
+                    utm.import_useragent_lists()
+                    utm.import_mime_lists()
+                    utm.import_url_lists()
+                    utm.import_time_restricted_lists()
+                    utm.import_shaper()
+                    utm.import_scada_list()
+                    utm.import_templates_list()
+                    utm.import_categories_groups()
+                    utm.import_application_groups()
+                    utm.import_nlist_groups('emailgroup')
+                    utm.import_nlist_groups('phonegroup')
+                    utm.import_ips_profiles()
+                    utm.import_notification_profiles()
+                    utm.import_netflow_profiles()
+                    utm.import_ssl_profiles()
+
+                elif command == 201:
+                    utm.import_zones()
+                elif command == 202:
+                    utm.import_interfaces(server_ip)
+                elif command == 203:
+                    utm.import_gateways_list()
+                elif command == 204:
+                    utm.import_gateway_failover()
+                elif command == 205:
+                    utm.import_dhcp_subnets()
+                elif command == 206:
+                    utm.import_dns_config()
+                elif command == 207:
+                    utm.import_virt_routes()
+                elif command == 208:
+                    utm.import_wccp_rules()
+                elif command == 299:
+                    utm.import_zones()
+                    utm.import_interfaces(server_ip)
+                    utm.export_gateways_list()
+                    utm.import_gateway_failover()
+                    utm.import_dhcp_subnets()
+                    utm.import_dns_config()
+                    utm.import_virt_routes()
+                    utm.import_wccp_rules()
+
+                elif command == 301:
+                    utm.import_ui()
+                elif command == 302:
+                    utm.import_ntp()
+                elif command == 303:
+                    utm.import_settings()
+                elif command == 304:
+                    utm.import_proxy_portal()
+                elif command == 305:
+                    utm.import_admin_profiles()
+                elif command == 306:
+                    utm.import_admin_config()
+                elif command == 307:
+                    utm.import_admins()
+                elif command == 399:
+                    utm.import_ui()
+                    utm.import_ntp()
+                    utm.import_settings()
+                    utm.import_proxy_portal()
+                    utm.import_admin_profiles()
+                    utm.import_admin_config()
+                    utm.import_admins()
+
+                elif command == 401:
+                    utm.import_groups_list()
+                elif command == 402:
+                    utm.import_users_list()
+                elif command == 403:
+                    utm.import_2fa_profiles()
+                elif command == 404:
+                    utm.import_ldap_server()
+                elif command == 405:
+                    utm.import_ntlm_server()
+                elif command == 406:
+                    utm.import_radius_server()
+                elif command == 407:
+                    utm.import_tacacs_server()
+                elif command == 408:
+                    utm.import_saml_server()
+                elif command == 409:
+                    utm.import_auth_profiles()
+                elif command == 410:
+                    utm.import_captive_profiles()
+                elif command == 411:
+                    utm.import_captive_portal_rules()
+                elif command == 412:
+                    utm.import_byod_policy()
+                elif command == 499:
+                    utm.import_groups_list()
+                    utm.import_users_list()
+                    utm.import_2fa_profiles()
+                    utm.import_ldap_server()
+                    utm.import_ntlm_server()
+                    utm.import_radius_server()
+                    utm.import_tacacs_server()
+                    utm.import_saml_server()
+                    utm.import_auth_profiles()
+                    utm.import_captive_profiles()
+                    utm.import_captive_portal_rules()
+                    utm.import_byod_policy()
+                        
+                elif command == 501:
+                    utm.import_scenarios()
+                elif command == 502:
+                    utm.import_firewall_rules()
+                elif command == 503:
+                    utm.import_nat_rules()
+                elif command == 504:
+                    utm.import_icap_servers()
+                elif command == 506:
+                    utm.import_loadbalancing_rules()
+                elif command == 507:
+                    utm.import_shaper_rules()
+                elif command == 599:
+                    utm.import_scenarios()
+                    utm.import_firewall_rules()
+                    utm.import_nat_rules()
+                    utm.import_icap_servers()
+                    utm.import_loadbalancing_rules()
+                    utm.import_shaper_rules()
+
+                elif command == 601:
+                    utm.import_content_rules()
+                elif command == 602:
+                    utm.import_safebrowsing_rules()
+                elif command == 603:
+                    utm.import_ssldecrypt_rules()
+                elif command == 604:
+                    utm.import_sshdecrypt_rules()
+                elif command == 605:
+                    utm.import_idps_rules()
+                elif command == 606:
+                    utm.import_scada_rules()
+                elif command == 607:
+                    utm.import_mailsecurity_rules()
+                    utm.import_mailsecurity_dnsbl()
+                elif command == 608:
+                    utm.import_icap_rules()
+                elif command == 609:
+                    utm.import_dos_profiles()
+                elif command == 610:
+                    utm.import_dos_rules()
+                elif command == 699:
+                    utm.import_content_rules()
+                    utm.import_safebrowsing_rules()
+                    utm.import_ssldecrypt_rules()
+                    utm.import_sshdecrypt_rules()
+                    utm.import_idps_rules()
+                    utm.import_scada_rules()
+                    utm.import_mailsecurity_rules()
+                    utm.import_mailsecurity_dnsbl()
+                    utm.import_icap_rules()
+                    utm.import_dos_profiles()
+                    utm.import_dos_rules()
+
+                elif command == 701:
+                    utm.import_proxyportal_rules()
+                elif command == 702:
+                    utm.import_reverseproxy_servers()
+                elif command == 703:
+                    utm.import_reverseproxy_rules()
+                elif command == 799:
+                    utm.import_proxyportal_rules()
+                    utm.import_reverseproxy_servers()
+                    utm.import_reverseproxy_rules()
+
+                elif command == 801:
+                    utm.import_vpn_security_profiles()
+                elif command == 802:
+                    utm.import_vpn_networks()
+                elif command == 803:
+                    utm.import_vpn_server_rules()
+                elif command == 804:
+                    utm.import_vpn_client_rules()
+                elif command == 899:
+                    utm.import_vpn_security_profiles()
+                    utm.import_vpn_networks()
+                    utm.import_vpn_server_rules()
+                    utm.import_vpn_client_rules()
+
+                elif command == 901:
+                    utm.import_snmp_rules()
+                elif command == 902:
+                    utm.import_notification_alert_rules()
+                elif command == 999:
+                    utm.import_snmp_rules()
+                    utm.import_notification_alert_rules()
+
+                elif command == 9999:
+                    utm.import_morphology()
+                    utm.import_services()
+                    utm.import_IP_lists()
+                    utm.import_useragent_lists()
+                    utm.import_mime_lists()
+                    utm.import_url_lists()
+                    utm.import_time_restricted_lists()
+                    utm.import_shaper()
+                    utm.import_scada_list()
+                    utm.import_templates_list()
+                    utm.import_categories_groups()
+                    utm.import_application_groups()
+                    utm.import_nlist_groups('emailgroup')
+                    utm.import_nlist_groups('phonegroup')
+                    utm.import_ips_profiles()
+                    utm.import_notification_profiles()
+                    utm.import_netflow_profiles()
+                    utm.import_ssl_profiles()
+                    utm.import_zones()
+                    utm.import_interfaces(server_ip)
+                    utm.import_gateways_list()
+                    utm.import_gateway_failover()
+                    utm.import_dhcp_subnets()
+                    utm.import_dns_config()
+                    utm.import_virt_routes()
+                    utm.import_wccp_rules()
+                    utm.import_ui()
+                    utm.import_ntp()
+                    utm.import_settings()
+                    utm.import_proxy_portal()
+                    utm.import_admin_profiles()
+                    utm.import_admin_config()
+                    utm.import_admins()
+                    utm.import_groups_list()
+                    utm.import_users_list()
+                    utm.import_2fa_profiles()
+                    utm.import_ldap_server()
+                    utm.import_ntlm_server()
+                    utm.import_radius_server()
+                    utm.import_tacacs_server()
+                    utm.import_saml_server()
+                    utm.import_auth_profiles()
+                    utm.import_captive_profiles()
+                    utm.import_captive_portal_rules()
+                    utm.import_byod_policy()
+                    utm.import_scenarios()
+                    utm.import_firewall_rules()
+                    utm.import_nat_rules()
+                    utm.import_icap_servers()
+                    utm.import_loadbalancing_rules()
+                    utm.import_shaper_rules()
+                    utm.import_content_rules()
+                    utm.import_safebrowsing_rules()
+                    utm.import_ssldecrypt_rules()
+                    utm.import_sshdecrypt_rules()
+                    utm.import_idps_rules()
+                    utm.import_scada_rules()
+                    utm.import_mailsecurity_rules()
+                    utm.import_mailsecurity_dnsbl()
+                    utm.import_icap_rules()
+                    utm.import_dos_profiles()
+                    utm.import_dos_rules()
+                    utm.import_proxyportal_rules()
+                    utm.import_reverseproxy_servers()
+                    utm.import_reverseproxy_rules()
+                    utm.import_vpn_security_profiles()
+                    utm.import_vpn_networks()
+                    utm.import_vpn_server_rules()
+                    utm.import_vpn_client_rules()
+                    utm.import_snmp_rules()
+                    utm.import_notification_alert_rules()
+            except UtmError as err:
+                print(err)
+                utm.logout()
+                sys.exit()
+            except json.JSONDecodeError as err:
+                print(f'\n\033[31mОшибка парсинга файла конфигурации: {err}\033[0m')
+                utm.logout()
+                sys.exit()
+            except Exception as err:
+                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+                utm.logout()
+                sys.exit()
+            finally:
+                print("\033[32mИмпорт конфигурации завершён.\033[0m\n")
+                while True:
+                    input_value = input("\nНажмите пробел для возврата в меню: ")
+                    if input_value == " ":
+                        break
+        else:
+            print("\033[31mВы подключились к UTM 5-ой версии. Импорт конфигурации доступен только на версию 6.\033[0m")
+            while True:
+                input_value = input("\n\nНажмите пробел для возврата в меню: ")
+                if input_value == " ":
+                    break
 
 def main():
     print("\033c")
@@ -5468,645 +6122,20 @@ def main():
                     break
                 elif section == 99:
                     command = 99
-                    break
-                command = menu3(utm, mode, section)
-                if command != 999:
-                    break
-            if section != 999:
-                break
-
-        command = section * 100 + command
-        utm.init_struct()
-        if mode ==1:
-            if not os.path.isdir('data'):
-                os.mkdir('data')
-                print("Создана директория 'data' в текущем каталоге.")
-            utm.init_struct_for_export()
-            try:
-                if command == 101:
-                    utm.export_morphology_lists()
-                elif command == 102:
-                    utm.export_services_list()
-                elif command == 103:
-                    utm.export_IP_lists()
-                elif command == 104:
-                    utm.export_useragent_lists()
-                elif command == 105:
-                    utm.export_mime_lists()
-                elif command == 106:
-                    utm.export_url_lists()
-                elif command == 107:
-                    utm.export_time_restricted_lists()
-                elif command == 108:
-                    utm.export_shaper_list()
-                elif command == 109:
-                    utm.export_scada_list()
-                elif command == 110:
-                    utm.export_templates_list()
-                elif command == 111:
-                    utm.export_categories_groups()
-                elif command == 112:
-                    utm.export_application_groups()
-                elif command == 113:
-                    utm.export_nlist_groups('emailgroup')
-                elif command == 114:
-                    utm.export_nlist_groups('phonegroup')
-                elif command == 115:
-                    utm.export_ips_profiles()
-                elif command == 116:
-                    utm.export_notification_profiles_list()
-                elif command == 117:
-                    utm.export_netflow_profiles_list()
-                elif command == 118:
-                    utm.export_ssl_profiles_list()
-                elif command == 199:
-                    utm.export_morphology_lists()
-                    utm.export_services_list()
-                    utm.export_IP_lists()
-                    utm.export_useragent_lists()
-                    utm.export_mime_lists()
-                    utm.export_url_lists()
-                    utm.export_time_restricted_lists()
-                    utm.export_shaper_list()
-                    utm.export_scada_list()
-                    utm.export_templates_list()
-                    utm.export_categories_groups()
-                    utm.export_application_groups()
-                    utm.export_nlist_groups('emailgroup')
-                    utm.export_nlist_groups('phonegroup')
-                    utm.export_ips_profiles()
-                    utm.export_notification_profiles_list()
-                    utm.export_netflow_profiles_list()
-                    utm.export_ssl_profiles_list()
-
-                elif command == 201:
-                    utm.export_zones_list()
-                elif command == 202:
-                    utm.export_interfaces_list()
-                elif command == 203:
-                    utm.export_gateways_list()
-                elif command == 204:
-                    utm.export_gateway_failover()
-                elif command == 205:
-                    utm.export_dhcp_subnets()
-                elif command == 206:
-                    utm.export_dns_config()
-                elif command == 207:
-                    utm.export_routers_list()
-                elif command == 208:
-                    utm.export_ospf_config()
-                elif command == 209:
-                    utm.export_bgp_config()
-                elif command == 210:
-                    utm.export_wccp_list()
-                elif command == 299:
-                    utm.export_zones_list()
-                    utm.export_interfaces_list()
-                    utm.export_gateways_list()
-                    utm.export_gateway_failover()
-                    utm.export_dhcp_subnets()
-                    utm.export_dns_config()
-                    utm.export_routers_list()
-                    utm.export_ospf_config()
-                    utm.export_bgp_config()
-                    utm.export_wccp_list()
-
-                elif command == 301:
-                    utm.export_ui()
-                elif command == 302:
-                    utm.export_ntp()
-                elif command == 303:
-                    utm.export_settings()
-                elif command == 304:
-                    utm.export_proxy_portal()
-                elif command == 305:
-                    utm.export_admin_profiles_list()
-                elif command == 306:
-                    utm.export_admin_config()
-                elif command == 307:
-                    utm.export_admins_list()
-                elif command == 308:
-                    utm.export_certivicates_list()
-                elif command == 399:
-                    utm.export_ui()
-                    utm.export_ntp()
-                    utm.export_settings()
-                    utm.export_proxy_portal()
-                    utm.export_admin_profiles_list()
-                    utm.export_admin_config()
-                    utm.export_admins_list()
-                    utm.export_certivicates_list()
-
-                elif command == 401:
-                    utm.export_groups_lists()
-                elif command == 402:
-                    utm.export_users_lists()
-                elif command == 403:
-                    utm.export_2fa_profiles()
-                elif command == 404:
-                    utm.export_auth_servers()
-                elif command == 405:
-                    utm.export_auth_profiles()
-                elif command == 406:
-                    utm.export_captive_profiles()
-                elif command == 407:
-                    utm.export_captive_portal_rules()
-                elif command == 408:
-                    utm.export_byod_policy()
-                elif command == 499:
-                    utm.export_groups_lists()
-                    utm.export_users_lists()
-                    utm.export_2fa_profiles()
-                    utm.export_auth_servers()
-                    utm.export_auth_profiles()
-                    utm.export_captive_profiles()
-                    utm.export_captive_portal_rules()
-                    utm.export_byod_policy()
-
-                elif command == 501:
-                    utm.export_firewall_rules()
-                elif command == 502:
-                    utm.export_nat_rules()
-                elif command == 503:
-                    utm.export_loadbalancing_rules()
-                elif command == 504:
-                    utm.export_shaper_rules()
-                elif command == 599:
-                    utm.export_firewall_rules()
-                    utm.export_nat_rules()
-                    utm.export_loadbalancing_rules()
-                    utm.export_shaper_rules()
-
-                elif command == 601:
-                    utm.export_content_rules()
-                elif command == 602:
-                    utm.export_safebrowsing_rules()
-                elif command == 603:
-                    utm.export_ssldecrypt_rules()
-                elif command == 604:
-                    utm.export_sshdecrypt_rules()
-                elif command == 605:
-                    utm.export_idps_rules()
-                elif command == 606:
-                    utm.export_scada_rules()
-                elif command == 607:
-                    utm.export_scenarios()
-                elif command == 608:
-                    utm.export_mailsecurity_rules()
-                elif command == 609:
-                    utm.export_icap_servers()
-                elif command == 610:
-                    utm.export_icap_rules()
-                elif command == 611:
-                    utm.export_dos_profiles()
-                elif command == 612:
-                    utm.export_dos_rules()
-                elif command == 699:
-                    utm.export_content_rules()
-                    utm.export_safebrowsing_rules()
-                    utm.export_ssldecrypt_rules()
-                    utm.export_sshdecrypt_rules()
-                    utm.export_idps_rules()
-                    utm.export_scada_rules()
-                    utm.export_scenarios()
-                    utm.export_mailsecurity_rules()
-                    utm.export_icap_servers()
-                    utm.export_icap_rules()
-                    utm.export_dos_profiles()
-                    utm.export_dos_rules()
-
-                elif command == 701:
-                    utm.export_proxyportal_rules()
-                elif command == 702:
-                    utm.export_reverseproxy_servers()
-                elif command == 703:
-                    utm.export_reverseproxy_rules()
-                elif command == 799:
-                    utm.export_proxyportal_rules()
-                    utm.export_reverseproxy_servers()
-                    utm.export_reverseproxy_rules()
-
-                elif command == 801:
-                    utm.export_vpn_security_profiles()
-                elif command == 802:
-                    utm.export_vpn_networks()
-                elif command == 803:
-                    utm.export_vpn_server_rules()
-                elif command == 804:
-                    utm.export_vpn_client_rules()
-                elif command == 899:
-                    utm.export_vpn_security_profiles()
-                    utm.export_vpn_networks()
-                    utm.export_vpn_server_rules()
-                    utm.export_vpn_client_rules()
-
-                elif command == 901:
-                    utm.export_snmp_rules()
-                elif command == 902:
-                    utm.export_notification_alert_rules()
-                elif command == 999:
-                    utm.export_snmp_rules()
-                    utm.export_notification_alert_rules()
-
-                elif command == 9999:
-                    utm.export_morphology_lists()
-                    utm.export_services_list()
-                    utm.export_IP_lists()
-                    utm.export_useragent_lists()
-                    utm.export_mime_lists()
-                    utm.export_url_lists()
-                    utm.export_time_restricted_lists()
-                    utm.export_shaper_list()
-                    utm.export_scada_list()
-                    utm.export_templates_list()
-                    utm.export_categories_groups()
-                    utm.export_application_groups()
-                    utm.export_nlist_groups('emailgroup')
-                    utm.export_nlist_groups('phonegroup')
-                    utm.export_ips_profiles()
-                    utm.export_notification_profiles_list()
-                    utm.export_netflow_profiles_list()
-                    utm.export_ssl_profiles_list()
-                    utm.export_zones_list()
-                    utm.export_interfaces_list()
-                    utm.export_gateways_list()
-                    utm.export_gateway_failover()
-                    utm.export_dhcp_subnets()
-                    utm.export_dns_config()
-                    utm.export_routers_list()
-                    utm.export_ospf_config()
-                    utm.export_bgp_config()
-                    utm.export_wccp_list()
-                    utm.export_ui()
-                    utm.export_ntp()
-                    utm.export_settings()
-                    utm.export_proxy_portal()
-                    utm.export_admin_profiles_list()
-                    utm.export_admin_config()
-                    utm.export_admins_list()
-                    utm.export_certivicates_list()
-                    utm.export_groups_lists()
-                    utm.export_users_lists()
-                    utm.export_2fa_profiles()
-                    utm.export_auth_servers()
-                    utm.export_auth_profiles()
-                    utm.export_captive_profiles()
-                    utm.export_captive_portal_rules()
-                    utm.export_byod_policy()
-                    utm.export_firewall_rules()
-                    utm.export_nat_rules()
-                    utm.export_loadbalancing_rules()
-                    utm.export_shaper_rules()
-                    utm.export_content_rules()
-                    utm.export_safebrowsing_rules()
-                    utm.export_ssldecrypt_rules()
-                    utm.export_sshdecrypt_rules()
-                    utm.export_idps_rules()
-                    utm.export_scada_rules()
-                    utm.export_scenarios()
-                    utm.export_mailsecurity_rules()
-                    utm.export_icap_servers()
-                    utm.export_icap_rules()
-                    utm.export_dos_profiles()
-                    utm.export_dos_rules()
-                    utm.export_proxyportal_rules()
-                    utm.export_reverseproxy_servers()
-                    utm.export_reverseproxy_rules()
-                    utm.export_vpn_security_profiles()
-                    utm.export_vpn_networks()
-                    utm.export_vpn_server_rules()
-                    utm.export_vpn_client_rules()
-                    utm.export_snmp_rules()
-                    utm.export_notification_alert_rules()
-            except UtmError as err:
-                print(err)
-#            except Exception as err:
-#                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
-            finally:
-                utm.logout()
-                print("\033[32mЭкспорт конфигурации завершён.\033[0m\n")
-        else:
-            if utm.version.startswith('6'):
-                utm.init_struct_for_import()
-                try:
-                    if command == 101:
-                        utm.import_morphology()
-                    elif command == 102:
-                        utm.import_services()
-                    elif command == 103:
-                        utm.import_IP_lists()
-                    elif command == 104:
-                        utm.import_useragent_lists()
-                    elif command == 105:
-                        utm.import_mime_lists()
-                    elif command == 106:
-                        utm.import_url_lists()
-                    elif command == 107:
-                        utm.import_time_restricted_lists()
-                    elif command == 108:
-                        utm.import_shaper()
-                    elif command == 109:
-                        utm.import_scada_list()
-                    elif command == 110:
-                        utm.import_templates_list()
-                    elif command == 111:
-                        utm.import_categories_groups()
-                    elif command == 112:
-                        utm.import_application_groups()
-                    elif command == 113:
-                        utm.import_nlist_groups('emailgroup')
-                    elif command == 114:
-                        utm.import_nlist_groups('phonegroup')
-                    elif command == 115:
-                        utm.import_ips_profiles()
-                    elif command == 116:
-                        utm.import_notification_profiles()
-                    elif command == 117:
-                        utm.import_netflow_profiles()
-                    elif command == 118:
-                        utm.import_ssl_profiles()
-                    elif command == 199:
-                        utm.import_morphology()
-                        utm.import_services()
-                        utm.import_IP_lists()
-                        utm.import_useragent_lists()
-                        utm.import_mime_lists()
-                        utm.import_url_lists()
-                        utm.import_time_restricted_lists()
-                        utm.import_shaper()
-                        utm.import_scada_list()
-                        utm.import_templates_list()
-                        utm.import_categories_groups()
-                        utm.import_application_groups()
-                        utm.import_nlist_groups('emailgroup')
-                        utm.import_nlist_groups('phonegroup')
-                        utm.import_ips_profiles()
-                        utm.import_notification_profiles()
-                        utm.import_netflow_profiles()
-                        utm.import_ssl_profiles()
-                    elif command == 201:
-                        utm.import_zones()
-                    elif command == 202:
-                        utm.import_interfaces(server_ip)
-                    elif command == 203:
-                        utm.import_gateways_list()
-                    elif command == 204:
-                        utm.import_gateway_failover()
-                    elif command == 205:
-                        utm.import_dhcp_subnets()
-                    elif command == 206:
-                        utm.import_dns_config()
-                    elif command == 207:
-                        utm.import_virt_routes()
-                    elif command == 208:
-                        utm.import_wccp_rules()
-                    elif command == 299:
-                        utm.import_zones()
-                        utm.import_interfaces(server_ip)
-                        utm.export_gateways_list()
-                        utm.import_gateway_failover()
-                        utm.import_dhcp_subnets()
-                        utm.import_dns_config()
-                        utm.import_virt_routes()
-                        utm.import_wccp_rules()
-
-                    elif command == 301:
-                        utm.import_ui()
-                    elif command == 302:
-                        utm.import_ntp()
-                    elif command == 303:
-                        utm.import_settings()
-                    elif command == 304:
-                        utm.import_proxy_portal()
-                    elif command == 305:
-                        utm.import_admin_profiles()
-                    elif command == 306:
-                        utm.import_admin_config()
-                    elif command == 307:
-                        utm.import_admins()
-                    elif command == 399:
-                        utm.import_ui()
-                        utm.import_ntp()
-                        utm.import_settings()
-                        utm.import_proxy_portal()
-                        utm.import_admin_profiles()
-                        utm.import_admin_config()
-                        utm.import_admins()
-
-                    elif command == 401:
-                        utm.import_groups_list()
-                    elif command == 402:
-                        utm.import_users_list()
-                    elif command == 403:
-                        utm.import_2fa_profiles()
-                    elif command == 404:
-                        utm.import_ldap_server()
-                    elif command == 405:
-                        utm.import_ntlm_server()
-                    elif command == 406:
-                        utm.import_radius_server()
-                    elif command == 407:
-                        utm.import_tacacs_server()
-                    elif command == 408:
-                        utm.import_saml_server()
-                    elif command == 409:
-                        utm.import_auth_profiles()
-                    elif command == 410:
-                        utm.import_captive_profiles()
-                    elif command == 411:
-                        utm.import_captive_portal_rules()
-                    elif command == 412:
-                        utm.import_byod_policy()
-                    elif command == 499:
-                        utm.import_groups_list()
-                        utm.import_users_list()
-                        utm.import_2fa_profiles()
-                        utm.import_ldap_server()
-                        utm.import_ntlm_server()
-                        utm.import_radius_server()
-                        utm.import_tacacs_server()
-                        utm.import_saml_server()
-                        utm.import_auth_profiles()
-                        utm.import_captive_profiles()
-                        utm.import_captive_portal_rules()
-                        utm.import_byod_policy()
-                        
-                    elif command == 501:
-                        utm.import_scenarios()
-                    elif command == 502:
-                        utm.import_firewall_rules()
-                    elif command == 503:
-                        utm.import_nat_rules()
-                    elif command == 504:
-                        utm.import_icap_servers()
-                    elif command == 506:
-                        utm.import_loadbalancing_rules()
-                    elif command == 507:
-                        utm.import_shaper_rules()
-                    elif command == 599:
-                        utm.import_scenarios()
-                        utm.import_firewall_rules()
-                        utm.import_nat_rules()
-                        utm.import_icap_servers()
-                        utm.import_loadbalancing_rules()
-                        utm.import_shaper_rules()
-
-                    elif command == 601:
-                        utm.import_content_rules()
-                    elif command == 602:
-                        utm.import_safebrowsing_rules()
-                    elif command == 603:
-                        utm.import_ssldecrypt_rules()
-                    elif command == 604:
-                        utm.import_sshdecrypt_rules()
-                    elif command == 605:
-                        utm.import_idps_rules()
-                    elif command == 606:
-                        utm.import_scada_rules()
-                    elif command == 607:
-                        utm.import_mailsecurity_rules()
-                        utm.import_mailsecurity_dnsbl()
-                    elif command == 608:
-                        utm.import_icap_rules()
-                    elif command == 609:
-                        utm.import_dos_profiles()
-                    elif command == 610:
-                        utm.import_dos_rules()
-                    elif command == 699:
-                        utm.import_content_rules()
-                        utm.import_safebrowsing_rules()
-                        utm.import_ssldecrypt_rules()
-                        utm.import_sshdecrypt_rules()
-                        utm.import_idps_rules()
-                        utm.import_scada_rules()
-                        utm.import_mailsecurity_rules()
-                        utm.import_mailsecurity_dnsbl()
-                        utm.import_icap_rules()
-                        utm.import_dos_profiles()
-                        utm.import_dos_rules()
-
-                    elif command == 701:
-                        utm.import_proxyportal_rules()
-                    elif command == 702:
-                        utm.import_reverseproxy_servers()
-                    elif command == 703:
-                        utm.import_reverseproxy_rules()
-                    elif command == 799:
-                        utm.import_proxyportal_rules()
-                        utm.import_reverseproxy_servers()
-                        utm.import_reverseproxy_rules()
-
-                    elif command == 801:
-                        utm.import_vpn_security_profiles()
-                    elif command == 802:
-                        utm.import_vpn_networks()
-                    elif command == 803:
-                        utm.import_vpn_server_rules()
-                    elif command == 804:
-                        utm.import_vpn_client_rules()
-                    elif command == 899:
-                        utm.import_vpn_security_profiles()
-                        utm.import_vpn_networks()
-                        utm.import_vpn_server_rules()
-                        utm.import_vpn_client_rules()
-
-                    elif command == 901:
-                        utm.import_snmp_rules()
-                    elif command == 902:
-                        utm.import_notification_alert_rules()
-                    elif command == 999:
-                        utm.import_snmp_rules()
-                        utm.import_notification_alert_rules()
-
-                    elif command == 9999:
-                        utm.import_morphology()
-                        utm.import_services()
-                        utm.import_IP_lists()
-                        utm.import_useragent_lists()
-                        utm.import_mime_lists()
-                        utm.import_url_lists()
-                        utm.import_time_restricted_lists()
-                        utm.import_shaper()
-                        utm.import_scada_list()
-                        utm.import_templates_list()
-                        utm.import_categories_groups()
-                        utm.import_application_groups()
-                        utm.import_nlist_groups('emailgroup')
-                        utm.import_nlist_groups('phonegroup')
-                        utm.import_ips_profiles()
-                        utm.import_notification_profiles()
-                        utm.import_netflow_profiles()
-                        utm.import_ssl_profiles()
-                        utm.import_zones()
-                        utm.import_interfaces(server_ip)
-                        utm.import_gateways_list()
-                        utm.import_gateway_failover()
-                        utm.import_dhcp_subnets()
-                        utm.import_dns_config()
-                        utm.import_virt_routes()
-                        utm.import_wccp_rules()
-                        utm.import_ui()
-                        utm.import_ntp()
-                        utm.import_settings()
-                        utm.import_proxy_portal()
-                        utm.import_admin_profiles()
-                        utm.import_admin_config()
-                        utm.import_admins()
-                        utm.import_groups_list()
-                        utm.import_users_list()
-                        utm.import_2fa_profiles()
-                        utm.import_ldap_server()
-                        utm.import_ntlm_server()
-                        utm.import_radius_server()
-                        utm.import_tacacs_server()
-                        utm.import_saml_server()
-                        utm.import_auth_profiles()
-                        utm.import_captive_profiles()
-                        utm.import_captive_portal_rules()
-                        utm.import_byod_policy()
-                        utm.import_scenarios()
-                        utm.import_firewall_rules()
-                        utm.import_nat_rules()
-                        utm.import_icap_servers()
-                        utm.import_loadbalancing_rules()
-                        utm.import_shaper_rules()
-                        utm.import_content_rules()
-                        utm.import_safebrowsing_rules()
-                        utm.import_ssldecrypt_rules()
-                        utm.import_sshdecrypt_rules()
-                        utm.import_idps_rules()
-                        utm.import_scada_rules()
-                        utm.import_mailsecurity_rules()
-                        utm.import_mailsecurity_dnsbl()
-                        utm.import_icap_rules()
-                        utm.import_dos_profiles()
-                        utm.import_dos_rules()
-                        utm.import_proxyportal_rules()
-                        utm.import_reverseproxy_servers()
-                        utm.import_reverseproxy_rules()
-                        utm.import_vpn_security_profiles()
-                        utm.import_vpn_networks()
-                        utm.import_vpn_server_rules()
-                        utm.import_vpn_client_rules()
-                        utm.import_snmp_rules()
-                        utm.import_notification_alert_rules()
-                except UtmError as err:
-                    print(err)
-#                except Exception as err:
-#                    print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
-                except json.JSONDecodeError as err:
-                    print(f'\n\033[31mОшибка парсинга файла конфигурации: {err}\033[0m')
-                finally:
-                    utm.logout()
-                    print("\033[32mИмпорт конфигурации завершён.\033[0m\n")
-            else:
-                print("\033[31mВы подключились к UTM 5-ой версии. Импорт конфигурации доступен только на версию 6.\033[0m")
+                    executor(utm, mode, section, command)
+                else:
+                    while True:
+                        command = menu3(utm, mode, section)
+                        if command == 999:
+                            break
+                        else:
+                            executor(utm, mode, section, command)
                 
     except KeyboardInterrupt:
         print("\nПрограмма принудительно завершена пользователем.\n")
         utm.logout()
-#    except:
-#        print("\nПрограмма завершена.\n")
+    except:
+        print("\nПрограмма завершена.\n")
 
 if __name__ == '__main__':
     main()
