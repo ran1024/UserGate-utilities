@@ -4352,47 +4352,59 @@ class UTM(UtmXmlRpc):
             # Импорт интерфейсов BOND
             if item['kind'] == 'bond':
                 ports = set(item['bonding']['slaves'])
-                if management_port not in ports:
-                    if item['name'] in interfaces_list.keys():
-                        print(f'\tИнтерфейс "{item["name"]}" уже существует', end= ' - ')
-                        self.update_interface(item['name'], item)
-                    else:
-                        if ports.isdisjoint(slave_interfaces):
-                            item.pop('kind')
-                            err, result = self.add_interface_bond(item)
-                            if err == 2:
-                                print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен!\033[0m')
-                                print(f"\033[31m{result}\033[0m")
-                            else:
-                                interfaces_list[item['name']] = 'bond'
-                                print(f'\tИнтерфейс "{item["name"]}" добавлен.')
-                        else:
-                            print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен так как содержит slave-порты принадлежащие другим интерфейсам!\033[0m')
-                    slave_interfaces.update(item['bonding']['slaves'])
+                try:
+                    for port in ports:
+                        _ = interfaces_list[port]
+                except KeyError:
+                    print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен, так как содержит несуществующий интерфейс в slave-портах!\033[0m')
                 else:
-                    print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен так как содержит slave-порт используемый для текущей сессии!\033[0m')
+                    if management_port not in ports:
+                        if ports.isdisjoint(slave_interfaces):
+                            if item['name'] in interfaces_list.keys():
+                                print(f'\tИнтерфейс "{item["name"]}" уже существует', end= ' - ')
+                                self.update_interface(item['name'], item)
+                            else:
+                                item.pop('kind')
+                                err, result = self.add_interface_bond(item)
+                                if err == 2:
+                                    print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен!\033[0m')
+                                    print(f"\033[31m{result}\033[0m")
+                                else:
+                                    interfaces_list[item['name']] = 'bond'
+                                    print(f'\tИнтерфейс "{item["name"]}" добавлен.')
+                            slave_interfaces.update(item['bonding']['slaves'])
+                        else:
+                            print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен так как содержит slave-порты принадлежащие другим интерфейсам!\033[0m')
+                    else:
+                        print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен так как содержит slave-порт используемый для текущей сессии!\033[0m')
             # Импорт интерфейсов BRIDGE
             elif item['kind'] == 'bridge':
                 ports = set(item['bridging']['ports'])
-                if management_port not in ports:
-                    if item['name'] in interfaces_list.keys():
-                        print(f'\tИнтерфейс "{item["name"]}" уже существует', end= ' - ')
-                        self.update_interface(item['name'], item)
-                    else:
-                        if ports.isdisjoint(slave_interfaces):
-                            item.pop('kind')
-                            err, result = self.add_interface_bridge(item)
-                            if err == 2:
-                                print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен!\033[0m')
-                                print(f"\033[31m{result}\033[0m")
-                            else:
-                                interfaces_list[item['name']] = 'bridge'
-                                print(f'\tИнтерфейс "{item["name"]}" добавлен.')
-                        else:
-                            print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен так как содержит slave-порты принадлежащие другим интерфейсам!\033[0m')
-                    slave_interfaces.update(item['bridging']['ports'])
+                try:
+                    for port in ports:
+                        _ = interfaces_list[port]
+                except KeyError:
+                    print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен, так как содержит несуществующий интерфейс в slave-портах!\033[0m')
                 else:
-                    print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен так как содержит slave-порт используемый для текущей сессии!\033[0m')
+                    if management_port not in ports:
+                        if ports.isdisjoint(slave_interfaces):
+                            if item['name'] in interfaces_list.keys():
+                                print(f'\tИнтерфейс "{item["name"]}" уже существует', end= ' - ')
+                                self.update_interface(item['name'], item)
+                            else:
+                                item.pop('kind')
+                                err, result = self.add_interface_bridge(item)
+                                if err == 2:
+                                    print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен!\033[0m')
+                                    print(f"\033[31m{result}\033[0m")
+                                else:
+                                    interfaces_list[item['name']] = 'bridge'
+                                    print(f'\tИнтерфейс "{item["name"]}" добавлен.')
+                            slave_interfaces.update(item['bridging']['ports'])
+                        else:
+                            print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен так как содержит slave-порты принадлежащие другим интерфейсам!\033[0m')
+                    else:
+                        print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен так как содержит slave-порт используемый для текущей сессии!\033[0m')
 
             # Импорт интерфейсов TUNNEL
             elif 'kind' in item.keys() and item['kind'] == 'tunnel':
@@ -4432,21 +4444,24 @@ class UTM(UtmXmlRpc):
         for item in data:
             if 'kind' in item.keys() and item['kind'] == 'vlan':
                 if item['link'] not in slave_interfaces:
-                    if interfaces_list[item['link']] in ('bridge', 'bond', 'adapter'):
-                        if item['name'] in interfaces_list.keys():
-                            print(f'\tИнтерфейс "{item["name"]}" уже существует', end= ' - ')
-                            self.update_interface(item['name'], item)
-                        else:
-                            item.pop('kind')
-                            err, result = self.add_interface_vlan(item)
-                            if err == 2:
-                                print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен!\033[0m')
-                                print(f"\033[31m{result}\033[0m")
+                    try:
+                        if interfaces_list[item['link']] in ('bridge', 'bond', 'adapter'):
+                            if item['name'] in interfaces_list.keys():
+                                print(f'\tИнтерфейс "{item["name"]}" уже существует', end= ' - ')
+                                self.update_interface(item['name'], item)
                             else:
-                                interfaces_list[item['name']] = 'vlan'
-                                print(f'\tИнтерфейс "{item["name"]}" добавлен.')
-                    else:
-                        print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен, так как ссылается на интерфейс "{item["link"]}" с недопустимым типом!\033[0m')
+                                item.pop('kind')
+                                err, result = self.add_interface_vlan(item)
+                                if err == 2:
+                                    print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен!\033[0m')
+                                    print(f"\033[31m{result}\033[0m")
+                                else:
+                                    interfaces_list[item['name']] = 'vlan'
+                                    print(f'\tИнтерфейс "{item["name"]}" добавлен.')
+                        else:
+                            print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен, так как ссылается на интерфейс "{item["link"]}" с недопустимым типом!\033[0m')
+                    except KeyError:
+                        print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен, так как ссылается на несуществующий интерфейс "{item["link"]}"!\033[0m')
                 else:
                     print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен, так как ссылается на slave-порт принадлежащий другому интерфейсу!\033[0m')
 
@@ -4454,21 +4469,24 @@ class UTM(UtmXmlRpc):
         for item in data:
             if 'kind' in item.keys() and item['kind'] == 'ppp':
                 if item['pppoe']['ifname'] not in slave_interfaces:
-                    if interfaces_list[item['pppoe']['ifname']] in ('bond', 'adapter'):
-                        if item['name'] in interfaces_list.keys():
-                            print(f'\tИнтерфейс "{item["name"]}" уже существует', end= ' - ')
-                            self.update_interface(item['name'], item)
-                        else:
-                            item.pop('kind')
-                            err, result = self.add_interface_pppoe(item)
-                            if err == 2:
-                                print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен!\033[0m')
-                                print(f"\033[31m{result}\033[0m")
+                    try:
+                        if interfaces_list[item['pppoe']['ifname']] in ('bond', 'adapter'):
+                            if item['name'] in interfaces_list.keys():
+                                print(f'\tИнтерфейс "{item["name"]}" уже существует', end= ' - ')
+                                self.update_interface(item['name'], item)
                             else:
-                                interfaces_list[item['name']] = 'ppp'
-                                print(f'\tИнтерфейс "{item["name"]}" добавлен.')
-                    else:
-                        print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен, так как ссылается на интерфейс "{item["link"]}" с недопустимым типом!\033[0m')
+                                item.pop('kind')
+                                err, result = self.add_interface_pppoe(item)
+                                if err == 2:
+                                    print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен!\033[0m')
+                                    print(f"\033[31m{result}\033[0m")
+                                else:
+                                    interfaces_list[item['name']] = 'ppp'
+                                    print(f'\tИнтерфейс "{item["name"]}" добавлен.')
+                        else:
+                            print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен, так как ссылается на интерфейс "{item["link"]}" с недопустимым типом!\033[0m')
+                    except KeyError:
+                        print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен, так как ссылается на несуществующий интерфейс "{item["pppoe"]["ifname"]}"!\033[0m')
                 else:
                     print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен, так как ссылается на slave-порт принадлежащий другому интерфейсу!\033[0m')
 
@@ -6084,10 +6102,10 @@ def executor(utm, mode, section, command):
                 print(f'\n\033[31mОшибка парсинга файла конфигурации: {err}\033[0m')
                 utm.logout()
                 sys.exit()
-            except Exception as err:
-                print(f'\n\033[31mОшибка ug_convert_config/main(): {err}.\033[0m')
-                utm.logout()
-                sys.exit()
+#            except Exception as err:
+#                print(f'\n\033[31mОшибка ug_convert_config/main(): {err}.\033[0m')
+#                utm.logout()
+#                sys.exit()
             finally:
                 print("\033[32mИмпорт конфигурации завершён.\033[0m\n")
                 while True:
@@ -6136,8 +6154,8 @@ def main():
     except KeyboardInterrupt:
         print("\nПрограмма принудительно завершена пользователем.\n")
         utm.logout()
-    except:
-        print("\nПрограмма завершена.\n")
+#    except:
+#        print("\nПрограмма завершена.\n")
 
 if __name__ == '__main__':
     main()
