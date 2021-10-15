@@ -6135,20 +6135,25 @@ def main():
     try:
         utm = UTM(server_ip, login, password)
         while True:
+            utm.ping_session()
             mode = menu1(utm)
             while True:
+                utm.ping_session()
                 section = menu2(utm, mode)
                 if section == 999:
                     break
                 elif section == 99:
                     command = 99
+                    utm.ping_session()
                     executor(utm, mode, section, command)
                 else:
                     while True:
+                        utm.ping_session()
                         command = menu3(utm, mode, section)
                         if command == 999:
                             break
                         else:
+                            utm.ping_session()
                             executor(utm, mode, section, command)
                 
     except KeyboardInterrupt:

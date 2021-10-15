@@ -52,6 +52,16 @@ class UtmXmlRpc:
             if err.faultCode == 104:
                 print('Сессия завершилась по таймауту.')
 
+    def ping_session(self):
+        """Ping сессии"""
+        try:
+            result = self._server.v2.core.session.ping(self._auth_token)
+        except rpc.Fault as err:
+            if err.faultCode == 104:
+                print(f'Сессия завершилась по таймауту.')
+            else:
+                print(f"\tОшибка utm.ping_session: [{err.faultCode}] — {err.faultString}")
+
 ################################### Settings ####################################
     def get_ntp_config(self):
         """Получить конфигурацию NTP"""
