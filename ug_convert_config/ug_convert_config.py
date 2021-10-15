@@ -866,7 +866,7 @@ class UTM(UtmXmlRpc):
 
     def import_categories_groups(self):
         """Импортировать список "Категории URL" на UTM"""
-        print('Импорт списка "Категории URL":')
+        print('Импорт списка "Категории URL" раздела "Библиотеки":')
         try:
             with open("data/library/config_categories_url.json", "r") as fh:
                 data = json.load(fh)
@@ -993,7 +993,7 @@ class UTM(UtmXmlRpc):
             'emailgroup': ["Почтовые адреса", "адресов", "адрес"],
             'phonegroup': ["Номера телефонов", "номеров", "номер"],
             }
-        print(f'Импорт списка "{list_name[list_type][0]}":')
+        print(f'Импорт списка "{list_name[list_type][0]}" раздела "Библиотеки":')
         try:
             with open(f"data/library/config_{list_type}.json", "r") as fh:
                 data = json.load(fh)
@@ -1056,7 +1056,7 @@ class UTM(UtmXmlRpc):
 
     def import_ips_profiles(self):
         """Импортировать списки: "Профили СОВ" на UTM"""
-        print(f'Импорт списка "Профили СОВ":')
+        print(f'Импорт списка "Профили СОВ" раздела "Библиотеки":')
         try:
             with open(f"data/library/config_ips_profiles.json", "r") as fh:
                 data = json.load(fh)
@@ -1432,6 +1432,8 @@ class UTM(UtmXmlRpc):
 
         _, result = self.get_certificates_list()
         list_certificates = {x['name']: x['id'] for x in result}
+        list_certificates[-1] = -1
+
         _, result = self.get_ssl_profiles_list()
         ssl_profiles = {x['name']: x['id'] for x in result}
 
@@ -4101,7 +4103,7 @@ class UTM(UtmXmlRpc):
 
     def import_zones(self):
         """Импортировать зоны на UTM"""
-        print("Импорт зон:")
+        print('Импорт списка "Зоны" раздела "Сеть":')
         try:
             with open("data/network/config_zones.json", "r") as fd:
                 zones = json.load(fd)
@@ -4110,8 +4112,7 @@ class UTM(UtmXmlRpc):
             return
 
         for item in zones:
-            if "cc" in item.keys():
-                item.pop("cc")
+            item.pop("cc", None)
             err, result = self.add_zone(item)
             if err == 1:
                 print(result, end= ' - ')
@@ -4123,6 +4124,7 @@ class UTM(UtmXmlRpc):
             elif err == 2:
                 print(result)
             else:
+                self.zones[item['name']] = result
                 print(f"\tЗона '{item['name']}' добавлена.")
 
     def export_gateways_list(self):
@@ -4292,7 +4294,7 @@ class UTM(UtmXmlRpc):
             json.dump(data, fd, indent=4, ensure_ascii=False)
         print(f'\tСписок интерфейсов выгружен в файл "data/network/config_interfaces.json".')
 
-    def import_interfaces(self, server_ip):
+    def import_interfaces(self):
         """Импортировать интерфесы"""
         print('Импорт списка "Интерфейсы" раздела "Сеть":')
         try:
@@ -4316,9 +4318,9 @@ class UTM(UtmXmlRpc):
             interfaces_list[item['name']] = item['kind']
             if item['master']:
                 slave_interfaces.add(item['name'])
-            if f"{server_ip}/24" in item['ipv4']:
+            if f"{self.server_ip}/24" in item['ipv4']:
                 management_port = item["name"]
-                print(f'\tИнтерфейс "{item["name"]}" [{server_ip}] используется для текущей сессии - \033[32mNot updated!\033[0;0m')
+                print(f'\tИнтерфейс "{item["name"]}" [{self.server_ip}] используется для текущей сессии - \033[32mNot updated!\033[0;0m')
             if item['kind'] == 'vpn':
                 vpn_ips.update({x[:x.rfind('.')] for x in item['ipv4']})
 
@@ -4328,7 +4330,7 @@ class UTM(UtmXmlRpc):
                 try:
                     item['zone_id'] = self.zones[item['zone_id']]
                 except KeyError as err:
-                    print(f'\t\033[33mЗона {err} для интерфейса "{item["name"]}" не найдена.\n\tЗагрузите список зон и повторите попытку.\033[0m')
+                    print(f'\t\033[33mЗона {err} для интерфейса "{item["name"]}" не найдена.\n\t\tЗагрузите список зон и повторите попытку.\033[0m')
                     item['zone_id'] = 0
             try:
                 item['netflow_profile'] = self.list_netflow[item['netflow_profile']]
@@ -5831,7 +5833,7 @@ def executor(utm, mode, section, command):
                 elif command == 201:
                     utm.import_zones()
                 elif command == 202:
-                    utm.import_interfaces(server_ip)
+                    utm.import_interfaces()
                 elif command == 203:
                     utm.import_gateways_list()
                 elif command == 204:
@@ -5846,8 +5848,8 @@ def executor(utm, mode, section, command):
                     utm.import_wccp_rules()
                 elif command == 299:
                     utm.import_zones()
-                    utm.import_interfaces(server_ip)
-                    utm.export_gateways_list()
+                    utm.import_interfaces()
+                    utm.import_gateways_list()
                     utm.import_gateway_failover()
                     utm.import_dhcp_subnets()
                     utm.import_dns_config()
@@ -6022,7 +6024,7 @@ def executor(utm, mode, section, command):
                     utm.import_netflow_profiles()
                     utm.import_ssl_profiles()
                     utm.import_zones()
-                    utm.import_interfaces(server_ip)
+                    utm.import_interfaces()
                     utm.import_gateways_list()
                     utm.import_gateway_failover()
                     utm.import_dhcp_subnets()
@@ -6083,7 +6085,7 @@ def executor(utm, mode, section, command):
                 utm.logout()
                 sys.exit()
             except Exception as err:
-                print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+                print(f'\n\033[31mОшибка ug_convert_config/main(): {err}.\033[0m')
                 utm.logout()
                 sys.exit()
             finally:
