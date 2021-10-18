@@ -1239,9 +1239,12 @@ class UtmXmlRpc:
                 return 2, f'\tНе возможно получить имя доменной группы.\n\tПроверьте что версия UTM 5.0.6.4865 (6.1.3.10697) или выше.'
             else:
                 return 1, f"\tОшибка utm.get_ldap_group_name: [{err.faultCode}] — {err.faultString}\n\tПроверьте настройки LDAP-коннектора!"
-        data = {x[0]: x[1] for x in [x.split('=') for x in result['name'].split(',')]}
-        return 0, f"{result['guid'].split(':')[0]}\\{data['CN']}"
+        data = [x.split('=') for x in result['name'].split(',')]
+        for y in data:
+            if y[0] == 'CN':
+                return 0, y[1]
 
+################### Политики сети ############################################################
     def get_firewall_rules(self):
         """Получить список правил межсетевого экрана"""
         try:
