@@ -1236,13 +1236,13 @@ class UtmXmlRpc:
             result = self._server.v1.ldap.group.fetch(self._auth_token, group_guid)
         except rpc.Fault as err:
             if err.faultCode == 1:
-                return 2, f'\tНе возможно получить имя доменной группы.\n\tПроверьте что версия UTM 5.0.6.4865 (6.1.3.10697) или выше.'
+                return 2, f'\tНе возможно получить имя доменной группы.\n\tПроверьте что версия UTM 5.0.6.4973 (6.1.3.10697) или выше.'
             else:
                 return 1, f"\tОшибка utm.get_ldap_group_name: [{err.faultCode}] — {err.faultString}\n\tПроверьте настройки LDAP-коннектора!"
         data = [x.split('=') for x in result['name'].split(',')]
         for y in data:
             if y[0] == 'CN':
-                return 0, y[1]
+                return 0, f"{result['guid'].split(':')[0]}\\{y[1]}"
 
 ################### Политики сети ############################################################
     def get_firewall_rules(self):
