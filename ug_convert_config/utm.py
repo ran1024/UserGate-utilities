@@ -213,7 +213,43 @@ class UtmXmlRpc:
         except rpc.Fault as err:
             print(f"\tОшибка utm.get_certificates_list: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
-        return len(result), result
+        return result
+
+    def get_certificate_details(self, cert_id):
+        """Получить детальную информацию по сертификату"""
+        try:
+            result = self._server.v2.settings.certificate.details(self._auth_token, cert_id)
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_certificate_details: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return result
+
+    def get_certificate_data(self, cert_id):
+        """Выгрузить сертификат в DER формате"""
+        try:
+            result = self._server.v2.settings.certificate.getData(self._auth_token, cert_id)
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_certificate_data: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return result
+
+    def get_certificate_chain_data(self, cert_id):
+        """Выгрузить сертификат в DER формате"""
+        try:
+            result = self._server.v2.settings.certificate.getCertWithChainData(self._auth_token, cert_id)
+        except rpc.Fault as err:
+            print(f"\tОшибка utm.get_certificate_chain_data: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return result
+
+    def add_certificate(self, cert):
+        """Добавить новый сертификат"""
+        try:
+            result = self._server.v2.setting.certificate.add(self._auth_token, cert)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_certificate: [{err.faultCode}] — {err.faultString}: {admin['login']}"
+        else:
+            return 0, result     # Возвращает ID добавленного правила
 
 ##################################### Network #####################################
     def get_zones_list(self):
@@ -462,9 +498,12 @@ class UtmXmlRpc:
         try:
             result = self._server.v1.wccp.rules.list(self._auth_token)
         except rpc.Fault as err:
-            print(f"Ошибка utm.get_wccp_list: [{err.faultCode}] — {err.faultString}")
+            if err.faultCode == 102:
+                    return 1, f'\tОшибка: нет прав на чтение конфигурации WCCP. Конфигурация WWCP не выгружена.'
+            else:
+                print(f"Ошибка utm.get_wccp_list: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
-        return result
+        return 0, result
 
     def add_wccp_rule(self, rule):
         """Добавить правило wccp"""

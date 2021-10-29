@@ -1601,17 +1601,26 @@ class UTM(UtmXmlRpc):
     def export_certivicates_list(self):
         """Выгрузить список сертификатов"""
         print('Выгружаются список "Сертификаты" раздела "UserGate":')
-        if not os.path.isdir('data/usergate'):
-            os.makedirs('data/usergate')
+        if not os.path.isdir('data/usergate/certivicates'):
+            os.makedirs('data/usergate/certivicates')
 
-        _, data = self.get_certificates_list()
+        data = self.get_certificates_list()
 
         for item in data:
+            self.export_certivicate_details(item['id'], item['name'])
             item.pop('id', None)
             item.pop('cc', None)
-        with open("data/usergate/certivicates_list.json", "w") as fh:
+        with open("data/usergate/certivicates/certivicates_list.json", "w") as fh:
             json.dump(data, fh, indent=4, ensure_ascii=False)
         print(f'\tСписок "Сертификаты" выгружен в файл "data/usergate/certivicates_list.json".')
+
+    def export_certivicate_details(self, cert_id, cert_name):
+        """Выгрузить детальную информацию по сертификатам"""
+
+        data = self.get_certificate_details(cert_id)
+
+        with open(f"data/usergate/certivicates/{cert_name}.json", "w") as fh:
+            json.dump(data, fh, indent=4, ensure_ascii=False)
 
 ################### Пользователи и устройства ################################
     def export_groups_lists(self):
@@ -4669,7 +4678,10 @@ class UTM(UtmXmlRpc):
         if not os.path.isdir('data/network'):
             os.makedirs('data/network')
 
-        data = self.get_wccp_list()
+        err, data = self.get_wccp_list()
+        if err == 1:
+            print("\n", f'\033[31m{data}\033[0m')
+            return
 
         for item in data:
             item.pop('id', None)
