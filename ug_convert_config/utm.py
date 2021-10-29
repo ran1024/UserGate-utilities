@@ -213,7 +213,7 @@ class UtmXmlRpc:
         except rpc.Fault as err:
             print(f"\tОшибка utm.get_certificates_list: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
-        return result
+        return 0, result
 
     def get_certificate_details(self, cert_id):
         """Получить детальную информацию по сертификату"""
@@ -1261,7 +1261,7 @@ class UtmXmlRpc:
             result = self._server.v1.ldap.user.fetch(self._auth_token, user_guid)
         except rpc.Fault as err:
             if err.faultCode == 1:
-                return 2, f'\tНе возможно получить имя доменного пользователя.\n\tПроверьте что версия UTM 5.0.6.4865 (6.1.3.10697) или выше.'
+                return 2, f'\tНе возможно получить имя доменного пользователя.\n\tПроверьте что версия UTM 5.0.6.4973 (6.1.3.10697) или выше.'
             else:
                 return 1, f"\tОшибка utm.get_ldap_user_name: [{err.faultCode}] — {err.faultString}\n\tПроверьте настройки LDAP-коннектора!"
         name = result['name']

@@ -1399,7 +1399,7 @@ class UTM(UtmXmlRpc):
         if not os.path.isdir('data/settings'):
             os.makedirs('data/settings')
 
-        _, result = self.get_certificates_list()
+        err, result = self.get_certificates_list()
         list_certificates = {x['id']: x['name'] for x in result}
 
         _, data = self.get_proxyportal_config()
@@ -1430,7 +1430,7 @@ class UTM(UtmXmlRpc):
             print(f'\t\033[31mНастройки Веб-портала не импортированы!\n\tНе найден файл "data/settings/config_proxy_portal.json" с сохранённой конфигурацией!\033[0;0m')
             return
 
-        _, result = self.get_certificates_list()
+        err, result = self.get_certificates_list()
         list_certificates = {x['name']: x['id'] for x in result}
         list_certificates[-1] = -1
 
@@ -1604,7 +1604,7 @@ class UTM(UtmXmlRpc):
         if not os.path.isdir('data/usergate/certivicates'):
             os.makedirs('data/usergate/certivicates')
 
-        data = self.get_certificates_list()
+        err, data = self.get_certificates_list()
 
         for item in data:
             self.export_certivicate_details(item['id'], item['name'])
@@ -3573,7 +3573,7 @@ class UTM(UtmXmlRpc):
         if self.version.startswith('6'):
             _, result = self.get_ssl_profiles_list()
             ssl_profiles = {x['id']: x['name'] for x in result}
-            _, result = self.get_certificates_list()
+            err, result = self.get_certificates_list()
             ssl_certificates = {x['id']: x['name'] for x in result}
 
         _, data = self.get_proxyportal_rules()
@@ -3610,7 +3610,7 @@ class UTM(UtmXmlRpc):
             print("\tСписок URL-ресурсов веб-портала пуст.")
             return
 
-        _, result = self.get_certificates_list()
+        err, result = self.get_certificates_list()
         ssl_certificates = {x['name']: x['id'] for x in result}
         _, result = self.get_proxyportal_rules()
         list_proxyportal = {x['name']: x['id'] for x in result}
@@ -3708,7 +3708,7 @@ class UTM(UtmXmlRpc):
             _, result = self.get_ssl_profiles_list()
             ssl_profiles = {x['id']: x['name'] for x in result}
 
-        _, result = self.get_certificates_list()
+        err, result = self.get_certificates_list()
         ssl_certificates = {x['id']: x['name'] for x in result}
 
         _, data = self.get_reverseproxy_rules()
@@ -5790,10 +5790,10 @@ def executor(utm, mode, section, command):
             print(err)
             utm.logout()
             sys.exit()
-        except Exception as err:
-            print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
-            utm.logout()
-            sys.exit()
+#        except Exception as err:
+#            print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+#            utm.logout()
+#            sys.exit()
         finally:
             print("\033[32mЭкспорт конфигурации завершён.\033[0m\n")
             while True:
@@ -6171,8 +6171,8 @@ def main():
     except KeyboardInterrupt:
         print("\nПрограмма принудительно завершена пользователем.\n")
         utm.logout()
-    except:
-        print("\nПрограмма завершена.\n")
+#    except:
+#        print("\nПрограмма завершена.\n")
 
 if __name__ == '__main__':
     main()
