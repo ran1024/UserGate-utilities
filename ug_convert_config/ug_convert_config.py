@@ -4248,7 +4248,7 @@ class UTM(UtmXmlRpc):
             item.pop('node_name', None)
             item.pop('mac', None)
             if item['zone_id']:
-                item['zone_id'] = self.zones[item['zone_id']]
+                item['zone_id'] = self.zones.get(item['zone_id'], 0)
             item['netflow_profile'] = self.list_netflow.get(item['netflow_profile'], 'undefined')
             if self.version.startswith('5'):
                 item.pop('iface_id', None)
@@ -5790,10 +5790,10 @@ def executor(utm, mode, section, command):
             print(err)
             utm.logout()
             sys.exit()
-        except Exception as err:
-            print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
-            utm.logout()
-            sys.exit()
+#        except Exception as err:
+#            print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+#            utm.logout()
+#            sys.exit()
         finally:
             print("\033[32mЭкспорт конфигурации завершён.\033[0m\n")
             while True:
@@ -6171,8 +6171,8 @@ def main():
     except KeyboardInterrupt:
         print("\nПрограмма принудительно завершена пользователем.\n")
         utm.logout()
-    except:
-        print("\nПрограмма завершена.\n")
+#    except:
+#        print("\nПрограмма завершена.\n")
 
 if __name__ == '__main__':
     main()
