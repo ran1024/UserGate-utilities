@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-#
+# Версия 2.1
 # Программа предназначена для переноса конфигурации с UTM версии 5 на версию 6
 # или между устройствами 6-ой версии.
 #
@@ -1140,6 +1140,7 @@ class UTM(UtmXmlRpc):
             else:
                 self.list_notifications[item['name']] = result
                 print(f'\tПрофиль оповещения "{item["name"]}" добавлен.')
+                print(f'\t\033[36mВ добавленных правилах необходимо заново ввести пароль для доступа к серверам SMTP и SMPP.\033[0m')
 
     def export_netflow_profiles_list(self):
         """Выгрузить список профилей netflow раздела библиотеки"""
@@ -5399,10 +5400,9 @@ def menu3(utm, mode, section):
             print('1   - Импортировать настройки интерфейса веб-консоли раздела "UserGate/Настройки".')
             print('2   - Импортировать настройки NTP раздела "UserGate/Настройки".')
             print('3   - Импортировать настройки Модулей и кэширования HTTP раздела "UserGate/Настройки".')
-            print('4   - Импортировать настройки Веб-портала раздела "UserGate/Настройки".')
-            print('5   - Импортировать список "Профили администраторов" раздела "UserGate/Администраторы".')
-            print('6   - Импортировать настройки паролей администраторов раздела "UserGate/Администраторы".')
-            print('7   - Импортировать список администраторов раздела "UserGate/Администраторы".')
+            print('4   - Импортировать список "Профили администраторов" раздела "UserGate/Администраторы".')
+            print('5   - Импортировать настройки паролей администраторов раздела "UserGate/Администраторы".')
+            print('6   - Импортировать список администраторов раздела "UserGate/Администраторы".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -5447,9 +5447,10 @@ def menu3(utm, mode, section):
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
         elif section == 7:
-            print('1   - Импортировать список "Веб-портал" раздела "Глобальный портал".')
-            print('2   - Импортировать список "Серверы reverse-прокси" раздела "Глобальный портал".')
-            print('3   - Импортировать список "Правила reverse-прокси" раздела "Глобальный портал".')
+            print('1   - Импортировать настройки Веб-портала раздела "UserGate/Настройки".')
+            print('2   - Импортировать список "Веб-портал" раздела "Глобальный портал".')
+            print('3   - Импортировать список "Серверы reverse-прокси" раздела "Глобальный портал".')
+            print('4   - Импортировать список "Правила reverse-прокси" раздела "Глобальный портал".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -5790,10 +5791,10 @@ def executor(utm, mode, section, command):
             print(err)
             utm.logout()
             sys.exit()
-#        except Exception as err:
-#            print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
-#            utm.logout()
-#            sys.exit()
+        except Exception as err:
+            print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+            utm.logout()
+            sys.exit()
         finally:
             print("\033[32mЭкспорт конфигурации завершён.\033[0m\n")
             while True:
@@ -5893,18 +5894,15 @@ def executor(utm, mode, section, command):
                 elif command == 303:
                     utm.import_settings()
                 elif command == 304:
-                    utm.import_proxy_portal()
-                elif command == 305:
                     utm.import_admin_profiles()
-                elif command == 306:
+                elif command == 305:
                     utm.import_admin_config()
-                elif command == 307:
+                elif command == 306:
                     utm.import_admins()
                 elif command == 399:
                     utm.import_ui()
                     utm.import_ntp()
                     utm.import_settings()
-                    utm.import_proxy_portal()
                     utm.import_admin_profiles()
                     utm.import_admin_config()
                     utm.import_admins()
@@ -6002,12 +6000,15 @@ def executor(utm, mode, section, command):
                     utm.import_dos_rules()
 
                 elif command == 701:
-                    utm.import_proxyportal_rules()
+                    utm.import_proxy_portal()
                 elif command == 702:
-                    utm.import_reverseproxy_servers()
+                    utm.import_proxyportal_rules()
                 elif command == 703:
+                    utm.import_reverseproxy_servers()
+                elif command == 704:
                     utm.import_reverseproxy_rules()
                 elif command == 799:
+                    utm.import_proxy_portal()
                     utm.import_proxyportal_rules()
                     utm.import_reverseproxy_servers()
                     utm.import_reverseproxy_rules()
@@ -6064,7 +6065,6 @@ def executor(utm, mode, section, command):
                     utm.import_ui()
                     utm.import_ntp()
                     utm.import_settings()
-                    utm.import_proxy_portal()
                     utm.import_admin_profiles()
                     utm.import_admin_config()
                     utm.import_admins()
@@ -6097,6 +6097,7 @@ def executor(utm, mode, section, command):
                     utm.import_icap_rules()
                     utm.import_dos_profiles()
                     utm.import_dos_rules()
+                    utm.import_proxy_portal()
                     utm.import_proxyportal_rules()
                     utm.import_reverseproxy_servers()
                     utm.import_reverseproxy_rules()

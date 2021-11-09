@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+# Версия 2.1
 # Общий класс для работы с xml-rpc
 import sys
 import xmlrpc.client as rpc
@@ -1387,20 +1388,20 @@ class UtmXmlRpc:
 
     def add_icap_loadbalancing_rule(self, rule):
         """Добавить новое правило балансировки нагрузки ICAP"""
-        if rule['name'] in self.icap_rules.keys():
+        if rule['name'] in self.icap_loadbalancing.keys():
             return 1, f'\tПравило "{rule["name"]}" уже существует.'
         try:
             result = self._server.v1.icap.loadbalancing.rule.add(self._auth_token, rule)
         except rpc.Fault as err:
                 return 2, f"\tОшибка utm.add_icap_loadbalancing_rule: [{err.faultCode}] — {err.faultString}"
         else:
-            self.icap_rules[rule['name']] = result
+            self.icap_loadbalancing[rule['name']] = result
             return 0, result     # Возвращает ID добавленного правила
 
     def update_icap_loadbalancing_rule(self, rule):
         """Обновить правило балансировки нагрузки ICAP"""
         try:
-            rule_id = self.icap_rules[rule['name']]
+            rule_id = self.icap_loadbalancing[rule['name']]
             result = self._server.v1.icap.loadbalancing.rule.update(self._auth_token, rule_id, rule)
         except rpc.Fault as err:
             return 1, f"\tОшибка utm.update_icap_loadbalancing_rule: [{err.faultCode}] — {err.faultString}"
