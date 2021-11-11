@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Версия 2.1
+# Версия 2.2
 # Общий класс для работы с xml-rpc
 import sys
 import xmlrpc.client as rpc
@@ -586,6 +586,45 @@ class UtmXmlRpc:
         return data, neigh, rmaps, filters
 
 ##################################### Библиотека  ######################################
+    def get_custom_url_list(self):
+        """Получить список изменённых категорий URL раздела Библиотеки"""
+        try:
+            if self.version.startswith('6'):
+                result = self._server.v1.content.override.domains.list(self._auth_token, 0, 1000, {}, [])
+            else:
+                result = self._server.v1.content.override.domains.list(self._auth_token, 0, 1000, {})
+        except rpc.Fault as err:
+            return 2, f"\tНе удалось выгрузить список изменённых категорий URL!\n\tОшибка get_custom_url_list: [{err.faultCode}] — {err.faultString}"
+        return 0, result['items']
+
+    def add_custom_url(self, data):
+        """Добавить изменённую категорию URL"""
+        try:
+            result = self._server.v1.content.override.domain.add(self._auth_token, data)
+        except TypeError as err:
+            return 2, err
+        except rpc.Fault as err:
+            if err.faultCode == 409:
+                return 1, f'\tКатегория URL: "{data["name"]}" уже существует'
+            else:
+                return 2, f"\tОшибка utm.add_custom_url: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result
+
+    def update_custom_url(self, data_id, data):
+        """Обновить изменённую категорию URL"""
+        try:
+            result = self._server.v1.content.override.domain.update(self._auth_token, data_id, data)
+        except TypeError as err:
+            return 2, err
+        except rpc.Fault as err:
+            if err.faultCode == 409:
+                return 1, f"\tКатегория URL: {data['name']} - нет отличающихся параметров для изменения."
+            else:
+                return 2, f"\tОшибка utm.update_custom_url: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result
+
     def get_nlist_list(self, list_type):
         """Получить содержимое пользовательских именованных списков раздела Библиотеки"""
         array = []
@@ -683,7 +722,7 @@ class UtmXmlRpc:
             else:
                 result = self._server.v1.libraries.services.list(self._auth_token, 0, 1000, '', [])
         except rpc.Fault as err:
-            print(f"Ошибка get_dervices_list: [{err.faultCode}] — {err.faultString}")
+            print(f"Ошибка get_services_list: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
         return result['total'], result
 

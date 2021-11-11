@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Версия 2.1
+# Версия 2.2
 # Программа предназначена для переноса конфигурации с UTM версии 5 на версию 6
 # или между устройствами 6-ой версии.
 #
@@ -898,6 +898,68 @@ class UTM(UtmXmlRpc):
                                 print(f'\t\tДобавлена категория: "{category["name"]}".')
                         except:
                             print(f'\t\tКатегория "{category["name"]}" не будет добавлена, так как не существует на целевой системе.')
+
+    def export_custom_url_list(self):
+        """Выгружает список "Изменённые категории URL" и преобразует формат атрибутов списков к версии 6"""
+        print('Выгружается список "Изменённые категории URL" раздела "Библиотеки":')
+        group_name_revert = {v: k for k, v in self.default_url_category.items()}
+
+        if not os.path.isdir('data/library'):
+            os.makedirs('data/library')
+
+        err, data = self.get_custom_url_list()
+        if err == 2:
+            print(f"\033[31m{result}\033[0m")
+            return
+
+        for item in data:
+            item.pop('id', None)
+            item.pop('user', None)
+            item.pop('default_categories', None)
+            item.pop('change_date', None)
+            item.pop('cc', None)
+            item['categories'] = [self._categories[x] for x in item['categories']]
+
+        with open("data/library/custom_categories_url.json", "w") as fd:
+            json.dump(data, fd, indent=4, ensure_ascii=False)
+        print(f'\tСписок "Изменённые категории URL" выгружен в файл "data/library/custom_categories_url.json".')
+
+    def import_custom_url_list(self):
+        """Импортировать список "Изменённые категории URL" на UTM"""
+        print('Импорт списка "Изменённые категории URL" раздела "Библиотеки":')
+        try:
+            with open("data/library/custom_categories_url.json", "r") as fh:
+                data = json.load(fh)
+        except FileNotFoundError as err:
+            print('\t\033[31mСписок "Изменённые категории URL" не импортирован!\n\tНе найден файл "data/library/custom_categories_url.json" с сохранённой конфигурацией!\033[0;0m')
+            return
+
+        if not data:
+            print("\tНет изменённых категорий URL для импорта.")
+            return
+
+        err, custom_url = self.get_custom_url_list()
+        if err == 2:
+            print(f"\033[31m{result}\033[0m")
+            return
+
+        custom_url = {x['name']: x['id'] for x in custom_url}
+        for item in data:
+            item['categories'] = [self._categories[x] for x in item['categories']]
+            err, result = self.add_custom_url(item)
+            if err == 1:
+                print(result, end= ' - ')
+                err1, result1 = self.update_custom_url(custom_url[item['name']], item)
+                if err1 == 1:
+                    print("\n", result1)
+                elif err1 == 2:
+                    print("\n", f"\033[31m{result1}\033[0m")
+                else:
+                    print("\033[32mUpdated!\033[0;0m")
+            elif err == 2:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                print(f'\tИзменённая категория URL "{item["name"]}" добавлена.')
 
     def export_application_groups(self):
         """Выгружает список "Приложения" и преобразует формат атрибутов списков к версии 6"""
@@ -5262,14 +5324,15 @@ def menu3(utm, mode, section):
             print('9   - Экспортировать список "Профили АСУ ТП" раздела "Библиотеки".')
             print('10  - Экспортировать список "Шаблоны страниц" раздела "Библиотеки".')
             print('11  - Экспортировать список "Категории URL" раздела "Библиотеки".')
-            print('12  - Экспортировать список "Приложения" раздела "Библиотеки".')
-            print('13  - Экспортировать список "Почтовые адреса" раздела "Библиотеки".')
-            print('14  - Экспортировать список "Номера телефонов" раздела "Библиотеки".')
-            print('15  - Экспортировать список "Профили СОВ" раздела "Библиотеки".')
-            print('16  - Экспортировать список "Профили оповещений" раздела "Библиотеки".')
-            print('17  - Экспортировать список "Профили netflow" раздела "Библиотеки".')
+            print('12  - Экспортировать список "Изменённые категории URL" раздела "Библиотеки".')
+            print('13  - Экспортировать список "Приложения" раздела "Библиотеки".')
+            print('14  - Экспортировать список "Почтовые адреса" раздела "Библиотеки".')
+            print('15  - Экспортировать список "Номера телефонов" раздела "Библиотеки".')
+            print('16  - Экспортировать список "Профили СОВ" раздела "Библиотеки".')
+            print('17  - Экспортировать список "Профили оповещений" раздела "Библиотеки".')
+            print('18  - Экспортировать список "Профили netflow" раздела "Библиотеки".')
             if utm.version.startswith('6'):
-                print('18  - Экспортировать список "Профили SSL" раздела "Библиотеки".')
+                print('19  - Экспортировать список "Профили SSL" раздела "Библиотеки".')
             print('\033[36m99  - Экспортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -5373,14 +5436,15 @@ def menu3(utm, mode, section):
             print('9   - Импортировать список "Профили АСУ ТП" раздела "Библиотеки".')
             print('10  - Импортировать список "Шаблоны страниц" раздела "Библиотеки".')
             print('11  - Импортировать список "Категории URL" раздела "Библиотеки".')
-            print('12  - Импортировать список "Приложения" раздела "Библиотеки".')
-            print('13  - Импортировать список "Почтовые адреса" раздела "Библиотеки".')
-            print('14  - Импортировать список "Номера телефонов" раздела "Библиотеки".')
-            print('15  - Импортировать список "Профили СОВ" раздела "Библиотеки".')
-            print('16  - Импортировать список "Профили оповещений" раздела "Библиотеки".')
-            print('17  - Импортировать список "Профили netflow" раздела "Библиотеки".')
+            print('12  - Импортировать список "Изменённые категории URL" раздела "Библиотеки".')
+            print('13  - Импортировать список "Приложения" раздела "Библиотеки".')
+            print('14  - Импортировать список "Почтовые адреса" раздела "Библиотеки".')
+            print('15  - Импортировать список "Номера телефонов" раздела "Библиотеки".')
+            print('16  - Импортировать список "Профили СОВ" раздела "Библиотеки".')
+            print('17  - Импортировать список "Профили оповещений" раздела "Библиотеки".')
+            print('18  - Импортировать список "Профили netflow" раздела "Библиотеки".')
             if utm.version.startswith('6'):
-                print('18  - Импортировать список "Профили SSL" раздела "Библиотеки".')
+                print('19  - Импортировать список "Профили SSL" раздела "Библиотеки".')
             print('\033[36m99  - Импортировать всё.\033[0m')
             print('\033[35m999 - Вверх (вернуться в предыдущее меню).\033[0m')
             print("\033[33m0   - Выход.\033[0m")
@@ -5473,7 +5537,7 @@ def menu3(utm, mode, section):
         try:
             command = int(input("\nВведите номер нужной операции: "))
             print("")
-            if command not in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 99, 999]:
+            if command not in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 99, 999]:
                 print("Вы ввели несуществующую команду.")
             elif command == 0:
                 utm.logout()
@@ -5515,18 +5579,20 @@ def executor(utm, mode, section, command):
             elif command == 111:
                 utm.export_categories_groups()
             elif command == 112:
-                utm.export_application_groups()
+                utm.export_custom_url_list()
             elif command == 113:
-                utm.export_nlist_groups('emailgroup')
+                utm.export_application_groups()
             elif command == 114:
-                utm.export_nlist_groups('phonegroup')
+                utm.export_nlist_groups('emailgroup')
             elif command == 115:
-                utm.export_ips_profiles()
+                utm.export_nlist_groups('phonegroup')
             elif command == 116:
-                utm.export_notification_profiles_list()
+                utm.export_ips_profiles()
             elif command == 117:
-                utm.export_netflow_profiles_list()
+                utm.export_notification_profiles_list()
             elif command == 118:
+                utm.export_netflow_profiles_list()
+            elif command == 119:
                 utm.export_ssl_profiles_list()
             elif command == 199:
                 utm.export_morphology_lists()
@@ -5540,6 +5606,7 @@ def executor(utm, mode, section, command):
                 utm.export_scada_list()
                 utm.export_templates_list()
                 utm.export_categories_groups()
+                utm.export_custom_url_list()
                 utm.export_application_groups()
                 utm.export_nlist_groups('emailgroup')
                 utm.export_nlist_groups('phonegroup')
@@ -5729,6 +5796,7 @@ def executor(utm, mode, section, command):
                 utm.export_scada_list()
                 utm.export_templates_list()
                 utm.export_categories_groups()
+                utm.export_custom_url_list()
                 utm.export_application_groups()
                 utm.export_nlist_groups('emailgroup')
                 utm.export_nlist_groups('phonegroup')
@@ -5828,18 +5896,20 @@ def executor(utm, mode, section, command):
                 elif command == 111:
                     utm.import_categories_groups()
                 elif command == 112:
-                    utm.import_application_groups()
+                    utm.import_custom_url_list()
                 elif command == 113:
-                    utm.import_nlist_groups('emailgroup')
+                    utm.import_application_groups()
                 elif command == 114:
-                    utm.import_nlist_groups('phonegroup')
+                    utm.import_nlist_groups('emailgroup')
                 elif command == 115:
-                    utm.import_ips_profiles()
+                    utm.import_nlist_groups('phonegroup')
                 elif command == 116:
-                    utm.import_notification_profiles()
+                    utm.import_ips_profiles()
                 elif command == 117:
-                    utm.import_netflow_profiles()
+                    utm.import_notification_profiles()
                 elif command == 118:
+                    utm.import_netflow_profiles()
+                elif command == 119:
                     utm.import_ssl_profiles()
                 elif command == 199:
                     utm.import_morphology()
@@ -5853,6 +5923,7 @@ def executor(utm, mode, section, command):
                     utm.import_scada_list()
                     utm.import_templates_list()
                     utm.import_categories_groups()
+                    utm.import_custom_url_list()
                     utm.import_application_groups()
                     utm.import_nlist_groups('emailgroup')
                     utm.import_nlist_groups('phonegroup')
@@ -6047,6 +6118,7 @@ def executor(utm, mode, section, command):
                     utm.import_scada_list()
                     utm.import_templates_list()
                     utm.import_categories_groups()
+                    utm.import_custom_url_list()
                     utm.import_application_groups()
                     utm.import_nlist_groups('emailgroup')
                     utm.import_nlist_groups('phonegroup')
