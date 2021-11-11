@@ -945,7 +945,11 @@ class UTM(UtmXmlRpc):
 
         custom_url = {x['name']: x['id'] for x in custom_url}
         for item in data:
-            item['categories'] = [self._categories[x] for x in item['categories']]
+            try:
+                item['categories'] = [self._categories[x] for x in item['categories']]
+            except KeyError as keyerr:
+                print(f"\t\033[33mВ правиле '{item['name']}' обнаружена несуществующая категория {keyerr}. Правило  не добавлено.\033[0m")
+                continue
             err, result = self.add_custom_url(item)
             if err == 1:
                 print(result, end= ' - ')
