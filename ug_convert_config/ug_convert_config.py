@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Версия 2.2
+# Версия 2.3
 # Программа предназначена для переноса конфигурации с UTM версии 5 на версию 6
 # или между устройствами 6-ой версии.
 #
@@ -1623,6 +1623,12 @@ class UTM(UtmXmlRpc):
             item.pop('guid', None)
             item.pop('cc', None)
             item['profile_id'] = admin_profiles.get(item['profile_id'], -1)
+            if item['type'] == 'ldap_user':
+                i = item['login'].find('(')
+                item['login'] = item['login'][i+1:len(item['login'])-1]
+            elif item['type'] == 'ldap_group':
+                group_name = [x.split('=') for x in item['login'].split(',')]
+                item['login'] = f'{group_name[-2][1]}.{group_name[-1][1]}\{group_name[0][1]}'
 
         with open("data/usergate/admins_list.json", "w") as fh:
             json.dump(data, fh, indent=4, ensure_ascii=False)
@@ -1656,6 +1662,16 @@ class UTM(UtmXmlRpc):
             else:
                 if item['type'] == 'local':
                     item['password'] = 'utm'
+                elif item['type'] in ('ldap_user', 'ldap_group'):
+                    domain, name = item['login'].split('\\')
+                    if item['type'] == 'ldap_user':
+                        err, guid = self.get_ldap_user_guid(domain, name)
+                    else:
+                        err, guid = self.get_ldap_group_guid(domain, name)
+                    if err:
+                        print(f'\033[31m{err}\n\tАдминистратор "{item["login"]}" не добавлен!\033[0m')
+                    else:
+                        item['guid'] = guid
                 err, result = self.add_admin(item)
                 if err == 2:
                     print(f"\033[31m{result}\033[0m")
@@ -1663,7 +1679,7 @@ class UTM(UtmXmlRpc):
                     admins_list[item['login']] = result
                     print(f'\tАдминистратор "{item["login"]}" добавлен.')
                     if item['type'] == 'local':
-                        print(f'\t  \033[36mЛокальному администратору "{item["login"]}" установлен пароль "utm". Поменяйте пароль по умолчанию!\033[0m')
+                        print(f'\t\033[36mЛокальному администратору "{item["login"]}" установлен пароль "utm". Поменяйте пароль по умолчанию!\033[0m')
 
     def export_certivicates_list(self):
         """Выгрузить список сертификатов"""

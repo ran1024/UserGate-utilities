@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Версия 2.2
+# Версия 2.3
 # Общий класс для работы с xml-rpc
 import sys
 import xmlrpc.client as rpc
@@ -1091,6 +1091,17 @@ class UtmXmlRpc:
             sys.exit(1)
         return ldap, radius, tacacs, ntlm, saml
 
+    def get_ldap_server_id(self, domain):
+        """Получить ID сервера авторизации LDAP по имени домена"""
+        try:
+            result = self._server.v1.auth.ldap.servers.list(self._auth_token, {})
+        except rpc.Fault as err:
+            return 1, f"\tОшибка utm.get_ldap_server_id: [{err.faultCode}] — {err.faultString}."
+        for item in result:
+            if domain in item['domains']:
+                return 0, item['id']
+        return 2, f"\tНет LDAP-коннектора для домена {domain}."
+
     def add_auth_server(self, type, server):
         """Добавить auth сервер"""
         if server['name'] in self.auth_servers.keys():
@@ -1272,7 +1283,7 @@ class UtmXmlRpc:
 
     def get_ldap_user_guid(self, ldap_domain, user_name):
         """Получить GUID пользователя LDAP по его имени"""
-        user = []
+        users = []
         try:
             result = self._server.v1.auth.ldap.servers.list(self._auth_token, {})
             for x in result:
