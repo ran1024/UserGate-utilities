@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Версия 2.3
+# Версия 2.4
 # Общий класс для работы с xml-rpc
 import sys
 import xmlrpc.client as rpc
@@ -2149,3 +2149,14 @@ class UtmXmlRpc:
             return 0, result     # Возвращает ID изменённого правила
 
 class UtmError(Exception): pass
+
+character_map = {
+    ord('\n'): '',
+    ord('\t'): '',
+    ord('\r'): '',
+    ':': '_',
+    '/': '_',
+    '\\': '_',
+    '.': '_',
+    ' ': '_',
+}

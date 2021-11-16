@@ -1,12 +1,12 @@
 #!/usr/bin/python3
-# Версия 2.3
+# Версия 2.4
 # Программа предназначена для переноса конфигурации с UTM версии 5 на версию 6
 # или между устройствами 6-ой версии.
 #
 import os, sys
 import stdiomask
 import json
-from utm import UtmXmlRpc, UtmError
+from utm import UtmXmlRpc, UtmError, character_map
 
 
 class UTM(UtmXmlRpc):
@@ -562,6 +562,7 @@ class UTM(UtmXmlRpc):
             os.makedirs('data/library/url')
 
         total, data = self.get_nlist_list('url')
+        trans_table = str.maketrans(character_map)
 
         for item in data:
             if self.version.startswith('5'):
@@ -573,11 +574,13 @@ class UTM(UtmXmlRpc):
             item.pop('global', None)
             item.pop('version', None)
             item.pop('last_update', None)
+            url_list_name = item['name'].translate(trans_table)
+#            item['name'] = url_list_name
             for content in item['content']:
                 content.pop('id', None)
-            with open(f"data/library/url/{item['name']}.json", "w") as fd:
+            with open(f"data/library/url/{url_list_name}.json", "w") as fd:
                 json.dump(item, fd, indent=4, ensure_ascii=False)
-            print(f'\tСписок URL "{item["name"]}" выгружен в файл data/library/url/{item["name"]}.json')
+            print(f'\tСписок URL "{item["name"]}" выгружен в файл data/library/url/{url_list_name}.json')
 
     def import_url_lists(self):
         """Импортировать списки URL на UTM"""
@@ -2739,7 +2742,12 @@ class UTM(UtmXmlRpc):
             item['referers'] = [self.list_url[x] for x in item['referers']]
             for x in item['user_agents']:
                 x[1] = self.list_useragent[x[1]] if x[0] == 'list_id' else x[1]
-            item['content_types'] = [self.list_mime[x] for x in item['content_types']]
+            try:
+                item['content_types'] = [self.list_mime[x] for x in item['content_types']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден mime (тип контента) "{err}" для правила "{item["name"]}".\033[0m')
+                print(f'\t\033[33mВозможно нет лицензии и UTM не обновил списки типов контента.\033[0m')
+                item['content_types'] = []
             if 'referer_categories' in item.keys():
                 try:
                     for x in item['referer_categories']:
@@ -2753,7 +2761,7 @@ class UTM(UtmXmlRpc):
 
         with open("data/security_policies/config_content_rules.json", "w") as fd:
             json.dump(data, fd, indent=4, ensure_ascii=False)
-        print(f'\tСписок "Пропускная способность" выгружен в файл "data/security_policies/config_content_rules.json".')
+        print(f'\tСписок "Фильтрация контента" выгружен в файл "data/security_policies/config_content_rules.json".')
 
     def import_content_rules(self):
         """Импортировать список правил фильтрации контента"""
@@ -3056,10 +3064,22 @@ class UTM(UtmXmlRpc):
             item.pop('cc', None)
             self.set_src_zone_and_ips(item)
             self.set_dst_zone_and_ips(item)
-            item['services'] = [self.services[x] for x in item['services']]
-            item['idps_profiles'] = [idps_profiles[x] for x in item['idps_profiles']]
+            try:
+                item['services'] = [self.services[x] for x in item['services']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден сервис {err} для правила "{item["name"]}".\n\tПроверьте список сервисов этого правила.\033[0m')
+                item['services'] = []
+            try:
+                item['idps_profiles'] = [idps_profiles[x] for x in item['idps_profiles']]
+            except KeyError as err:
+                print(f'\t\033[33mНе найден профиль СОВ {err} для правила "{item["name"]}".\n\tПроверьте профиль СОВ этого правила.\033[0m')
+                item['idps_profiles'] = []
             if self.version.startswith('6'):
-                item['idps_profiles_exclusions'] = [idps_profiles[x] for x in item['idps_profiles_exclusions']]
+                try:
+                    item['idps_profiles_exclusions'] = [idps_profiles[x] for x in item['idps_profiles_exclusions']]
+                except KeyError as err:
+                    print(f'\t\033[33mНе найден профиль исключения СОВ {err} для правила "{item["name"]}".\n\tПроверьте профили СОВ этого правила.\033[0m')
+                    item['idps_profiles_exclusions'] = []
             else:
                 item['idps_profiles_exclusions'] = []
 
@@ -5880,7 +5900,7 @@ def executor(utm, mode, section, command):
             utm.logout()
             sys.exit()
         except Exception as err:
-            print(f'\n\033[31mОшибка ug_convert_config/main(): {err} (Node: {server_ip}).\033[0m')
+            print(f'\n\033[31mОшибка ug_convert_config/main(): {err}\033[0m')
             utm.logout()
             sys.exit()
         finally:
