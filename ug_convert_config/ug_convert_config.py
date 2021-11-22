@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Версия 2.4
+# Версия 2.5
 # Программа предназначена для переноса конфигурации с UTM версии 5 на версию 6
 # или между устройствами 6-ой версии.
 #
@@ -4342,9 +4342,15 @@ class UTM(UtmXmlRpc):
 
         _, data = self.get_interfaces_list()
 
+        iface_name = {x['name']: x['name'].replace('eth', 'port', 1) if x['name'].startswith('eth') else x['name'].replace('rename', 'port', 1) for x in data}
+        ports_num = max([int(x[4:5]) if x.startswith('port') else 0 for x in iface_name.values()])
+        for key in sorted(iface_name.keys()):
+            if key.startswith('slot'):
+                ports_num += 1
+                iface_name[key] = f'port{ports_num}'
+
         for item in data:
             item['id'], _ = item['id'].split(':')
-#            item.pop('id', None)
             item.pop('link_info', None)
             item.pop('speed', None)
             item.pop('errors', None)
@@ -4358,20 +4364,17 @@ class UTM(UtmXmlRpc):
                 item.pop('qlen', None)
                 item.pop('nameservers', None)
                 item.pop('ifindex', None)
-                item['id'] = item['id'].replace('eth', 'port', 1)
-                item['id'] = item['id'].replace('rename', 'port', 1)
-                item['name'] = item['name'].replace('eth', 'port', 1)
-                item['name'] = item['name'].replace('rename', 'port', 1)
+                item['id'] = iface_name[item['id']]
+                item['name'] = iface_name[item['name']]
                 if item['kind'] == 'vlan':
-                    item['link'] = item['link'].replace('eth', 'port', 1)
-                    item['link'] = item['link'].replace('rename', 'port', 1)
+                    item['link'] = iface_name[item['link']]
                 elif item['kind'] == 'bridge':
                     ports = item['bridging']['ports']
-                    ports = [x.replace('eth', 'port', 1) if x.startswith('eth') else x.replace('rename', 'port', 1) for x in ports]
+                    ports = [iface_name[x] for x in ports]
                     item['bridging']['ports'] = ports
                 elif item['kind'] == 'bond':
                     ports = item['bonding']['slaves']
-                    ports = [x.replace('eth', 'port', 1) if x.startswith('eth') else x.replace('rename', 'port', 1) for x in ports]
+                    ports = [iface_name[x] for x in ports]
                     item['bonding']['slaves'] = ports
                 if item['kind'] == 'ppp':
                     item.pop('dhcp_relay', None)
@@ -4381,8 +4384,7 @@ class UTM(UtmXmlRpc):
                     item['pppoe'].pop('id', None)
                     if item['pppoe']['peer'] is None:
                         item['pppoe']['peer'] = ""
-                    item['pppoe']['ifname'] = item['pppoe']['ifname'].replace('eth', 'port', 1)
-                    item['pppoe']['ifname'] = item['pppoe']['ifname'].replace('rename', 'port', 1)
+                    item['pppoe']['ifname'] = iface_name[item['pppoe']['ifname']]
                 if item['kind'] == 'tunnel':
                     item.pop('dhcp_relay', None)
                     item['tunnel'].pop('name', None)
