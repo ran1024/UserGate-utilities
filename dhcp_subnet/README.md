@@ -15,4 +15,5 @@
 
 Скачайте архив <b>dhcp_subnet.zip</b> и распакуйте его.<br>
 Файл <b>ug_dhcp_subnet.py</b> сделать исполняемым.<br>
-Запустите <b>ug_dhcp_subnet.py</b> в терминале. Программа работает в Linux.
+Запустите <b>ug_dhcp_subnet.py</b> в терминале.<br>
+Программа работает в Linux.
