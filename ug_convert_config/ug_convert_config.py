@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Версия 2.5
+# Версия 2.6
 # Программа предназначена для переноса конфигурации с UTM версии 5 на версию 6
 # или между устройствами 6-ой версии.
 #
@@ -367,6 +367,7 @@ class UTM(UtmXmlRpc):
             os.makedirs('data/library/ip_lists')
 
         total, data = self.get_nlist_list('network')
+        trans_table = str.maketrans(character_map)
 
         for item in data:
             if self.version.startswith('5'):
@@ -378,7 +379,7 @@ class UTM(UtmXmlRpc):
             item.pop('global', None)
             item.pop('version')
             item.pop('last_update')
-            item['name'] = item['name'].replace("/","_")
+            item['name'] = item['name'].translate(trans_table)
             for content in item['content']:
                 content.pop('id')
             with open(f"data/library/ip_lists/{item['name']}.json", "w") as fd:
@@ -575,7 +576,7 @@ class UTM(UtmXmlRpc):
             item.pop('version', None)
             item.pop('last_update', None)
             url_list_name = item['name'].translate(trans_table)
-#            item['name'] = url_list_name
+            item['name'] = url_list_name
             for content in item['content']:
                 content.pop('id', None)
             with open(f"data/library/url/{url_list_name}.json", "w") as fd:
@@ -4245,6 +4246,9 @@ class UTM(UtmXmlRpc):
         if not os.path.isdir('data/network'):
             os.makedirs('data/network')
 
+        _, data = self.get_interfaces_list()
+        iface_name = self.translate_iface_name(data)
+
         _, data = self.get_gateways_list()
 
         for item in data:
@@ -4255,15 +4259,12 @@ class UTM(UtmXmlRpc):
             item.pop('protocol', None)
             item.pop('mac', None)
             item.pop('cc', None)
-            if 'name' in item.keys() and not item['name']:
+            if 'name' in item and not item['name']:
                 item['name'] = item['ipv4']
+            item['iface'] = iface_name[item['iface']] if item['iface'] else 'undefined'
             if self.version.startswith('5'):
-                if item['iface']:
-                    item['iface'] = item['iface'].replace('eth', 'port', 1)
                 item['is_automatic'] = False
                 item['vrf'] = 'default'
-            if not item['iface']:
-                item['iface'] = 'undefined'
 
         with open("data/network/config_gateways.json", "w") as fd:
             json.dump(data, fd, indent=4, ensure_ascii=False)
@@ -4342,12 +4343,7 @@ class UTM(UtmXmlRpc):
 
         _, data = self.get_interfaces_list()
 
-        iface_name = {x['name']: x['name'].replace('eth', 'port', 1) if x['name'].startswith('eth') else x['name'].replace('rename', 'port', 1) for x in data}
-        ports_num = max([int(x[4:5]) if x.startswith('port') else 0 for x in iface_name.values()])
-        for key in sorted(iface_name.keys()):
-            if key.startswith('slot'):
-                ports_num += 1
-                iface_name[key] = f'port{ports_num}'
+        iface_name = self.translate_iface_name(data)
 
         for item in data:
             item['id'], _ = item['id'].split(':')
@@ -4611,7 +4607,14 @@ class UTM(UtmXmlRpc):
         if not os.path.isdir('data/network'):
             os.makedirs('data/network')
 
+        _, data = self.get_interfaces_list()
+        iface_name = self.translate_iface_name(data)
+
         _, data = self.get_dhcp_list()
+
+        for item in data:
+            item['iface_id'] = iface_name[item['iface_id']]
+
         with open("data/network/config_dhcp_subnets.json", "w") as fd:
             json.dump(data, fd, indent=4, ensure_ascii=False)
         print(f"\tСписок подсетей DHCP выгружен в файл 'data/network/config_dhcp_subnets.json'.")
@@ -4852,6 +4855,9 @@ class UTM(UtmXmlRpc):
         if not os.path.isdir('data/network'):
             os.makedirs('data/network')
 
+        _, data = self.get_interfaces_list()
+        iface_name = self.translate_iface_name(data)
+
         routers = []
         data = self.get_routers_list()
 
@@ -4865,7 +4871,7 @@ class UTM(UtmXmlRpc):
                 item.pop('multihop', None)
                 item.pop('vrf', None)
                 item.pop('active', None)
-                item['ifname'] = item['iface_id'].replace('eth', 'port', 1) if item['iface_id'] else 'undefined'
+                item['ifname'] = iface_name[item['iface_id']] if item['iface_id'] else 'undefined'
                 item.pop('iface_id', None)
             else:
                 if item['routes']:
@@ -4893,6 +4899,8 @@ class UTM(UtmXmlRpc):
         """Выгрузить конфигурацию OSPF (только для v.5)"""
         if self.version.startswith('5'):
             print('Выгружается конфигурация OSPF раздела "Сеть":')
+            _, data = self.get_interfaces_list()
+            iface_name = self.translate_iface_name(data)
             data = [{
                     'name': 'default',
                     'routes': [],
@@ -4915,7 +4923,7 @@ class UTM(UtmXmlRpc):
             ospf['enabled'] = False
             for item in ifaces:
                 item['iface_id'], _ = item['iface_id'].split(':')
-                item['iface_id'] = item['iface_id'].replace('eth', 'port', 1)
+                item['iface_id'] = iface_name[item['iface_id']]
                 item['auth_params'].pop('md5_key', None)
                 item['auth_params'].pop('plain_key', None)
             for item in areas:
@@ -5125,6 +5133,18 @@ class UTM(UtmXmlRpc):
                         print(f'\tСоздано правило оповещения "{item["name"]}".')
 
 ################################## Служебные функции ###################################
+    def translate_iface_name(self, data):
+        if self.version.startswith('5'):
+            iface_name = {x['name']: x['name'].replace('eth', 'port', 1) if x['name'].startswith('eth') else x['name'].replace('rename', 'port', 1) for x in data}
+            ports_num = max([int(x[4:5]) if x.startswith('port') else 0 for x in iface_name.values()])
+            for key in sorted(iface_name.keys()):
+                if key.startswith('slot'):
+                    ports_num += 1
+                    iface_name[key] = f'port{ports_num}'
+        else:
+            iface_name = {x['name']: x['name'] for x in data}
+        return iface_name
+
     def set_src_zone_and_ips(self, item):
         if 'src_zones' in item.keys():
             zone_name = 'src_zones'
