@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Версия 2.6
+# Версия 2.7
 # Программа предназначена для переноса конфигурации с UTM версии 5 на версию 6
 # или между устройствами 6-ой версии.
 #
@@ -418,7 +418,9 @@ class UTM(UtmXmlRpc):
                         print(f'\tДобавлен список IP-адресов: "{ip_list["name"]}".')
                     if content:
                         err2, result2 = self.add_nlist_items(result, content)
-                        if err2 != 0:
+                        if err2 in (1, 3):
+                            print(result2)
+                        elif err2 == 2:
                             print(f"\033[31m{result2}\033[0m")
                         else:
                             print(f'\tСодержимое списка "{ip_list["name"]}" обновлено. Added {result2} record.')

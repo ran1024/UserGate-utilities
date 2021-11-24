@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Версия 2.6
+# Версия 2.7
 # Общий класс для работы с xml-rpc
 import sys
 import xmlrpc.client as rpc
@@ -709,6 +709,8 @@ class UtmXmlRpc:
         except rpc.Fault as err:
             if err.faultCode == 2001:
                 return 1, f"\tСодержимое: {item} не добавлено, так как уже существует."
+            elif err.faultCode == 2003:
+                return 3, f"\tСодержимое: {item} не добавлено, так как обновляется через URL."
             else:
                 return 2, f'\tОшибка utm.add_nlist_items: [{err.faultCode}] — {err.faultString}'
         else:
