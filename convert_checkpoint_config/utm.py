@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Версия 2.3
+# Версия 0.3
 # Общий класс для работы с xml-rpc
 import sys
 import xmlrpc.client as rpc
@@ -64,8 +64,26 @@ class UTM:
                 print(f"\tОшибка utm.ping_session: [{err.faultCode}] — {err.faultString}")
 
 ##################################### Библиотека  ######################################
+    def get_url_category(self):
+        """Получить список {name: id} категорий URL"""
+        try:
+            result = self._server.v2.core.get.categories()
+        except rpc.Fault as err:
+            print(f"Ошибка get_url_category: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return {x['name']: x['id'] for x in result}
+
+    def get_l7_apps(self):
+        """Получить список {name: id} приложений l7"""
+        try:
+            result = self._server.v2.core.get.l7apps(self._auth_token, 0, 10000, {}, [])
+        except rpc.Fault as err:
+            print(f"Ошибка get_l7_apps: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return {x['name']: x['id'] for x in result['items']}
+
     def get_nlists_list(self, list_type):
-        """Получить словарь {name: id} листов URL"""
+        """Получить словарь {name: id} списков URL"""
         try:
             result = self._server.v2.nlists.list(self._auth_token, list_type, 0, 1000, {})
         except rpc.Fault as err:

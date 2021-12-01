@@ -5,7 +5,7 @@
 
 import os, sys, json
 import stdiomask
-from services import ServicePorts, character_map, dict_risk
+from services import ServicePorts, character_map, dict_risk, url_category, l7categories, l7apps, none_apps
 from utm import UTM
 
 
@@ -15,6 +15,7 @@ def convert_file():
     if os.path.isdir('data_cp'):
         for file_name in os.listdir('data_cp'):
             if file_name.endswith('.json'):
+                print(file_name)
                 with open(f"data_cp/{file_name}", "r") as fh:
                     data = json.load(fh)
                 pp_file = file_name.replace('.json', '_pp.json', 1)
@@ -211,7 +212,7 @@ def convert_url_lists(objects):
                 if 'url-list' in value:
                     url_risk = value['risk'].translate(trans_table)
                     url_list_name = value['name'].translate(trans_table)
-                    objects[key] = {'url-list': url_list_name}
+                    objects[key] = {'type': 'url-list', 'name': url_list_name}
                     url_list[key] = {
                         'name': url_list_name,
                         'description': value['comments'],
@@ -228,43 +229,112 @@ def convert_url_lists(objects):
         except KeyError:
             pass
 
-def convert_url_categories(objects):
+def convert_application_site(objects):
     """
-    Выгружаем список категорий URL в каталог data_ug/library/url для последующей загрузки в NGFW.
-    В файле objects.json в типе application-site url-list переписывается в вид:
-    uid: {'url-list': 'ИМЯ_URL_ЛИСТА'}.
+    В файле objects.json в типе application-site переписывается в вид:
+    uid: {'type': 'l7apps', 'name': ['app_name']}.
     """
-    url_list = {}
-    print('Экспорт списков URL:')
-    if os.path.isdir('data_ug/library/url'):
-        for file_name in os.listdir('data_ug/library/url'):
-            os.remove(f'data_ug/library/url/{file_name}')
-    else:
-        os.makedirs('data_ug/library/url')
+    print('Конвертация application-site в Приложения и Категории URL:')
 
     for key, value in objects.items():
         try:
-            if value['type'] == 'application-site-group':
-                objects[key] = {'ip-list': value['name']}
-                members = []
-                for uid in value['members']:
-                    members.extend(ip_list[uid]['content'])
-                ip_list[key] = {
-                    'name': value['name'],
-                    'description': value['comments'],
-                    'type': "network",
-                    'url': '',
-                    'attributes': {
-                        "threat_level": 3
-                    },
-                    'content': members
-                }
+            if value['type'] == 'application-site-category':
+                if value['name'] in l7categories:
+                    objects[key] = l7categories[value['name']]
+                elif value['name'] in l7apps:
+                    objects[key] = l7apps[value['name']]
+                elif value['name'] in url_category:
+                    objects[key] = url_category[value['name']]
+                elif value['name'] in none_apps:
+                    print(f'\tКатегория "{value["name"]}" не будет перенесена так как не существует в UG NGFW.')
+                    objects[key] = none_apps[value['name']]
+                else:
+                    print(f'\tНе найдена application-site-category: "{value["name"]}", uid: {key}')
+            elif value['type'] == 'application-site':
+                if value['name'] in l7categories:
+                    objects[key] = l7categories[value['name']]
+                elif value['name'] in l7apps:
+                    objects[key] = l7apps[value['name']]
+                elif value['name'] in url_category:
+                    objects[key] = url_category[value['name']]
+                elif value['name'] in none_apps:
+                    print(f'\tПриложение "{value["name"]}" не будет перенесено так как не существует в UG NGFW.')
+                    objects[key] = none_apps[value['name']]
+                else:
+                    print(f'\tНе найден application-site: "{value["name"]}", uid: {key}')
         except KeyError:
             pass
-    array = list(url_list.values())
-    with open("data_ug/library/url/{value['name']}.json", "w") as fh:
-        json.dump(array, fh, indent=4, ensure_ascii=False)
-    print(f'\tСписок URL "{value["name"]}" выгружен в файл "data_ug/library/url/{value["name"]}.json"')
+
+def convert_application_group(objects):
+    """
+    В файле objects.json в типе application-site-group переписывается в вид:
+    uid: {'url-list': 'ИМЯ_URL_ЛИСТА'}.
+    """
+    print('Конвертация application-site-group:')
+
+    if not os.path.isdir('data_ug/library'):
+        os.makedirs('data_ug/library')
+
+    app_groups = []
+    url_groups = []
+    for key, value in objects.items():
+        try:
+            if value['type'] == 'application-site-group':
+                app = set()
+                ro_group = set()
+                url_category = set()
+                url_list = set()
+                value.pop('uid', None)
+                value.pop('comments', None)
+                value['type'] = 'apps_group'
+                for item in value['members']:
+                    if objects[item]['type'] == 'l7apps':
+                        app.update(set(objects[item]['name']))
+                    elif objects[item]['type'] == 'l7_category':
+                        ro_group.add(objects[item]['name'])
+                    elif objects[item]['type'] == 'url_category':
+                        url_category.add(objects[item]['name'])
+                    elif objects[item]['type'] == 'url-list':
+                        url_list.add(objects[item]['name'])
+                value.pop('members', None)
+
+                value['apps'] = [['ro_group', x] for x in ro_group]
+                if app:
+                    app_groups.append(
+                        {
+                            'name': value['name'],
+                            'description': '',
+                            'type': 'applicationgroup',
+                            'attributes': [],
+                            'content': [{'value': x} for x in app]
+                        }
+                    )
+                    value['apps'].append(['group', value['name']])
+                value['url_categories'] = []
+                if url_category:
+                    url_groups.append(
+                        {
+                            'name': value['name'],
+                            'description': '',
+                            'type': 'urlcategorygroup',
+                            'url': '',
+                            'attributes': [],
+                            'content': [{'name': x} for x in url_category]
+                        }
+                    )
+                    value['url_categories'].append(['category_id', value['name']])
+                value['urls'] = [x for x in url_list]
+        except KeyError:
+            pass
+
+    if app_groups:
+        with open("data_ug/library/application_groups.json", "w") as fh:
+            json.dump(app_groups, fh, indent=4, ensure_ascii=False)
+        print(f'\tГруппы приложений выгружены в файл "data_ug/library/application_groups.json".')
+    if url_groups:
+        with open("data_ug/library/url_category_groups.json", "w") as fh:
+            json.dump(url_groups, fh, indent=4, ensure_ascii=False)
+        print(f'\tГруппы URL категорий выгружены в файл "data_ug/library/url_category_groups.json".')
 
 def convert_access_role(objects):
     """
@@ -341,6 +411,7 @@ def convert_access_rule(objects):
         json.dump(data, fh, indent=4, ensure_ascii=False)
     print('\033[32mOk!\033[0m')
 
+##### Импорт ######
 def import_services(utm):
     """Импортировать список сервисов раздела библиотеки"""
     print('Импорт списка сервисов раздела "Библиотеки":')
@@ -453,6 +524,78 @@ def import_url_lists(utm):
     else:
         print("\033[33m\tНет списков URL для импорта.\033[0m")
 
+def import_application_groups(utm):
+    """Импортировать список "Приложения" на UTM"""
+    print('Импорт списка "Приложения" раздела "Библиотеки":')
+    try:
+        with open("data_ug/library/application_groups.json", "r") as fh:
+            data = json.load(fh)
+    except FileNotFoundError as err:
+        print('\t\033[31mСписок "Приложения" не импортирован!\n\tНе найден файл "data_ug/library/application_groups.json" с сохранённой конфигурацией!\033[0;0m')
+        return
+
+    if not data:
+        print("\tНет групп приложений для импорта.")
+        return
+
+    l7apps = utm.get_l7_apps()
+
+    for item in data:
+        content = item.pop('content')
+        err, result = utm.add_nlist(item)
+        if err == 1:
+            print(result, "\033[32mOk!\033[0;0m")
+        elif err == 2:
+            print(f"\033[31m{result}\033[0m")
+        else:
+            print(f'\tГруппа приложений "{item["name"]}" добавлена.')
+            if content:
+                content = [{'value': l7apps[x['value']]} for x in content]
+                try:
+                    err2, result2 = utm.add_nlist_items(result, content)
+                    if err2 != 0:
+                        print(f'\033[31m{result2}\033[0m')
+                    else:
+                        print(f'\t\tСодержимое группы приложений: "{item["name"]}" добавлено.')
+                except Exception as err:
+                    print(f'\t\t\033[31mСодержимое группы приложений "{item["name"]}" не добавлено.\n\t\t{err}\033[0m')
+
+def import_categories_groups(utm):
+    """Импортировать список "Категории URL" на UTM"""
+    print('Импорт списка "Категории URL" раздела "Библиотеки":')
+    try:
+        with open("data_ug/library/url_category_groups.json", "r") as fh:
+            data = json.load(fh)
+    except FileNotFoundError as err:
+        print('\t\033[31mСписок "Категории URL" не импортирован!\n\tНе найден файл "data_ug/library/url_category_groups.json" с сохранённой конфигурацией!\033[0;0m')
+        return
+
+    if not data:
+        print("\tНет групп URL категорий для импорта.")
+        return
+
+    url_category = utm.get_url_category()
+
+    for item in data:
+        content = item.pop('content')
+        err, result = utm.add_nlist(item)
+        if err == 1:
+            print(result, "\033[32mOk!\033[0;0m")
+        elif err == 2:
+            print(f"\033[31m{result}\033[0m")
+        else:
+            print(f'\tГруппа URL категорий "{item["name"]}" добавлена.')
+            if content:
+                content = [{'category_id': url_category[x['name']]} for x in content]
+                try:
+                    err2, result2 = utm.add_nlist_items(result, content)
+                    if err2 != 0:
+                        print(f'\033[31m{result2}\033[0m')
+                    else:
+                        print(f'\t\tСодержимое группы URL категорий "{item["name"]}" добавлено.')
+                except Exception as err:
+                    print(f'\t\t\033[31mСодержимое группы URL категорий "{item["name"]}" не будет добавлено.\n\t\t{err}\033[0m')
+
 def menu1():
     print("\033c")
     print(f"\033[1;36;43mUserGate\033[1;37;43m                  Конвертация конфигурации с CheckPoint на NGFW                 \033[1;36;43mUserGate\033[0m\n")
@@ -488,7 +631,7 @@ def main():
             mode = menu1()
             if mode == 1:
                 try:
-                    convert_file()
+#                    convert_file()
 
                     with open("data_cp/Main_4600_objects_pp.json", "r") as fh:
                         data = json.load(fh)
@@ -497,14 +640,16 @@ def main():
                     convert_services(objects)
                     convert_ip_lists(objects)
                     convert_url_lists(objects)
+                    convert_application_site(objects)
+                    convert_application_group(objects)
                     convert_access_role(objects)
                     convert_other(objects)
 #                    convert_access_rule(objects)
                     with open("objects.json", "w") as fh:
                         json.dump(objects, fh, indent=4, ensure_ascii=False)
-                except json.JSONDecodeError as err:
-                    print(f'\n\033[31mОшибка парсинга конфигурации: {err}\033[0m')
-                    sys.exit(1)
+#                except json.JSONDecodeError as err:
+#                    print(f'\n\033[31mОшибка парсинга конфигурации: {err}\033[0m')
+#                    sys.exit(1)
                 finally:
                     print("\n\033[32mКонвертация конфигурации CheckPoin в файлы json завершён.\033[0m")
                     while True:
@@ -520,9 +665,11 @@ def main():
                     print("\n")
                     utm = UTM(server_ip, login, password)
                     utm.connect()
-                    import_url_lists(utm)        
-                    import_services(utm)
-                    import_ip_lists(utm)
+#                    import_url_lists(utm)        
+#                    import_services(utm)
+#                    import_ip_lists(utm)
+#                    import_application_groups(utm)
+                    import_categories_groups(utm)
                 except json.JSONDecodeError as err:
                     print(f'\n\033[31mОшибка парсинга конфигурации: {err}\033[0m')
                     utm.logout()
