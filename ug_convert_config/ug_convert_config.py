@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Версия 2.7
+# Версия 2.8
 # Программа предназначена для переноса конфигурации с UTM версии 5 на версию 6
 # или между устройствами 6-ой версии.
 #
@@ -5288,7 +5288,7 @@ class UTM(UtmXmlRpc):
                         if err != 0:
                             print(f"\033[31m{result}\033[0m")
                         elif not result:
-                            print(f'\t\033[31mНет LDAP-коннектора для домена "{i[0]}"!\n\tИмпортируйте и настройте LDAP-коннектор. Затем повторите импорт групп.\033[0m')
+                            print(f'\t\033[31mНет LDAP-коннектора для домена "{i[0]}"!\n\tИмпортируйте и настройте LDAP-коннектор. Затем повторите импорт.\033[0m')
                         else:
                             x[1] = result
                             users.append(x)
@@ -5923,10 +5923,10 @@ def executor(utm, mode, section, command):
             print(err)
             utm.logout()
             sys.exit()
-        except Exception as err:
-            print(f'\n\033[31mОшибка ug_convert_config/main(): {err}\033[0m')
-            utm.logout()
-            sys.exit()
+#        except Exception as err:
+#            print(f'\n\033[31mОшибка ug_convert_config/main(): {err}\033[0m')
+#            utm.logout()
+#            sys.exit()
         finally:
             print("\033[32mЭкспорт конфигурации завершён.\033[0m\n")
             while True:
@@ -6251,10 +6251,10 @@ def executor(utm, mode, section, command):
                 print(f'\n\033[31mОшибка парсинга файла конфигурации: {err}\033[0m')
                 utm.logout()
                 sys.exit()
-            except Exception as err:
-                print(f'\n\033[31mОшибка ug_convert_config/main(): {err}.\033[0m')
-                utm.logout()
-                sys.exit()
+#            except Exception as err:
+#                print(f'\n\033[31mОшибка ug_convert_config/main(): {err}.\033[0m')
+#                utm.logout()
+#                sys.exit()
             finally:
                 print("\033[32mИмпорт конфигурации завершён.\033[0m\n")
                 while True:

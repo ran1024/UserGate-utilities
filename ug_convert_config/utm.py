@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Версия 2.7
+# Версия 2.8
 # Общий класс для работы с xml-rpc
 import sys
 import xmlrpc.client as rpc
@@ -1289,7 +1289,8 @@ class UtmXmlRpc:
         try:
             result = self._server.v1.auth.ldap.servers.list(self._auth_token, {})
             for x in result:
-                if ldap_domain in x['domains']:
+                domains = [y.lower() for y in x['domains']]
+                if ldap_domain.lower() in domains:
                     users = self._server.v1.ldap.users.list(self._auth_token, x['id'], user_name)
         except rpc.Fault as err:
             return 1, f"\tОшибка utm.get_ldap_user_guid: [{err.faultCode}] — {err.faultString}\n\tПроверьте настройки LDAP-коннектора!"
@@ -1301,7 +1302,8 @@ class UtmXmlRpc:
         try:
             result = self._server.v1.auth.ldap.servers.list(self._auth_token, {})
             for x in result:
-                if ldap_domain in x['domains']:
+                domains = [y.lower() for y in x['domains']]
+                if ldap_domain.lower() in domains:
                     groups = self._server.v1.ldap.groups.list(self._auth_token, x['id'], group_name)
         except rpc.Fault as err:
             return 1, f"\tОшибка utm.get_ldap_group_guid: [{err.faultCode}] — {err.faultString}\n\tПроверьте настройки LDAP-коннектора!"
