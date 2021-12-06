@@ -436,6 +436,43 @@ class UTM:
             if y[0] == 'CN':
                 return 0, f"{result['guid'].split(':')[0]}\\{y[1]}"
 
+####################################### Интерфейсы  #######################################
+    def get_interfaces_list(self):
+        """Получить список сетевых интерфейсов"""
+        try:
+            result = self._server.v1.netmanager.interfaces.list(self._auth_token, self.node_name, {})
+        except rpc.Fault as err:
+            print(f"Ошибка utm.get_interfaces_list: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return result
+
+    def update_interface(self, iface_id, iface):
+        """Update interface"""
+        try:
+            if iface['kind'] == 'vpn':
+                result = self._server.v1.netmanager.interface.update(self._auth_token, 'cluster', iface_id, iface)
+            else:
+                result = self._server.v1.netmanager.interface.update(self._auth_token, self.node_name, iface_id, iface)
+        except rpc.Fault as err:
+            print("\033[33mSkipped!\033[0m")
+            if err.faultCode == 1014:
+                print(f'\t\033[31mАдаптер {iface["name"]}: Cannot update slave interface.\033[0m')
+            elif err.faultCode == 18009:
+                print(f'\t\033[31mАдаптер {iface["name"]}: IP address conflict - {iface["ipv4"]}.\033[0m')
+            else:
+                print(f'\t\033[31mОшибка utm.update_interface: [{err.faultCode}] — {err.faultString}\033[0m')
+        else:
+            print('\033[32mUpdated!\033[0m')
+
+    def add_interface_vlan(self, vlan):
+        """Добавить vlan интерфейс"""
+        try:
+            result = self._server.v1.netmanager.interface.add.vlan(self._auth_token, self.node_name, vlan['name'], vlan)
+        except rpc.Fault as err:
+            return 2, f"\tОшибка utm.add_interface_vlan: [{err.faultCode}] — {err.faultString}"
+        else:
+            return 0, result     # Возвращает ID добавленного интерфейса
+
 ######################################## Маршруты  ########################################
     def get_routers_list(self):
         """Получить список маршрутов"""
@@ -475,6 +512,15 @@ class UTM:
             return 0, result     # Возвращает ID добавленного правила
 
 ##################################### Network #####################################
+    def get_zones_list(self):
+        """Получить список зон {name: id}"""
+        try:
+            result = self._server.v1.netmanager.zones.list(self._auth_token)
+        except rpc.Fault as err:
+            print(f"Ошибка get_zones_list: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return {x['name']: x['id'] for x in result}
+
     def add_zone(self, zone):
         """Добавить зону"""
         try:

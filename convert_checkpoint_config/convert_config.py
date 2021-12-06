@@ -77,8 +77,6 @@ def convert_services(objects):
                     }
                 ]
             }
-        elif value['type'] == 'service-other':
-            pass
 
     for key, value in objects.items():
         try:
@@ -89,7 +87,7 @@ def convert_services(objects):
                     'description': value['comments'],
                     'protocols': list(map(dict, set(tuple(d.items()) for d in members)))
                 }
-                objects[key] = {'services': value['name']}
+                objects[key] = {'services': services[key]['name']}
         except KeyError:
             pass
 
@@ -340,7 +338,7 @@ def convert_access_role(objects):
     """
     В файле объектов objects.json UID с access-role переписываются в вид:
     uid = {
-        'networks': 'ИМЯ_IP_ЛИСТА',
+        'networks': [{'ip-list': 'ИМЯ_IP_ЛИСТА'}],
         'users': [
             [ 'user', 'доменое_имя_юзера' ]
         ]
@@ -351,8 +349,12 @@ def convert_access_role(objects):
     for key, value in objects.items():
         try:
             if value['type'] == 'access-role':
+                tmp_role = {
+                    'type': value['type'],
+                    'name': value['name'],
+                }
                 if value['networks'] != 'any':
-                    objects[key]['networks'] = [{'ip-list': x['name']} for x in value['networks']]
+                    tmp_role['networks'] = [{'ip-list': x['name']} for x in value['networks']]
                 users = []
                 if isinstance(value['users'], list):
                     for item in value['users']:
@@ -364,10 +366,8 @@ def convert_access_role(objects):
                             users.append(['user', name])
                 elif value['users'] == "all identified":
                     users.append(['special', 'known_user'])
-                objects[key]['users'] = users
-                objects[key].pop('uid', None)
-                objects[key].pop('comments', None)
-                objects[key].pop('machines', None)
+                tmp_role['users'] = users
+                objects[key] = tmp_role
         except KeyError:
             pass
     print('\033[32mOk!\033[0m')
@@ -384,16 +384,20 @@ def convert_other(objects):
                 objects[key] = value['name'].lower()
             elif value['type'] == 'CpmiAnyObject':
                 objects[key] = 'Any'
+            elif value['type'] == 'service-other':
+                objects[key] = 'Any'
         except KeyError:
             pass
     print('\033[32mOk!\033[0m')
 
-def convert_access_rule(objects):
+def convert_access_rule(cp, objects):
     """
     """
     print('Конвертация access rule...', end = ' - ')
+    file_name = "data_cp/Firewall-Management server_pp.json"
+    if cp == 'Main_4600':
+        file_name = f"data_cp/{cp} Firewall-Management server_pp.json"
 
-    file_name = '4600_firewall.json'
     with open(f"{file_name}", "r") as fh:
         data = json.load(fh)
 
@@ -402,14 +406,168 @@ def convert_access_rule(objects):
             item['source'] = [objects[uid] for uid in item['source'] if objects[uid] != 'Any']
             item['destination'] = [objects[uid] for uid in item['destination'] if objects[uid] != 'Any']
             item['content'] = [objects[uid] for uid in item['content'] if objects[uid] != 'Any']
-            item['service'] = [objects[uid] for uid in item['service'] if objects[uid] != 'Any']
-            item['track'] = {'log': True} if True in item['track'].values() else {'log': False}
+            item['vpn'] = [objects[uid] for uid in item['vpn']]# if objects[uid] != 'Any']
+#            for uid in item['service']:
+#                if objects[uid]['services'] == 'UserCheck':
+#                    print(objects[uid])
+            item['position'] = item['rule-number']
+            item['services'] = list({objects[uid]['services'] for uid in item['service'] if objects[uid] != 'Any'})
+            item['services_negate'] = item['service-negate']
+            item['log'] = True if True in item['track'].values() else False
+            item['log_session_start'] = item['log']
             item['action'] = objects[item['action']]
+            item['description'] = item['comments']
+            item.pop('meta-info', None)
+            item.pop('domain', None)
+            item.pop('uid', None)
+            item.pop('custom-fields', None)
             item.pop('install-on', None)
+            item.pop('service', None)
+            item.pop('service-negate', None)
+            item.pop('track', None)
+            item.pop('action-settings', None)
+            item.pop('comments', None)
+            item.pop('rule-number', None)
 
     with open("4600_firewall_rab.json", "w") as fh:
         json.dump(data, fh, indent=4, ensure_ascii=False)
     print('\033[32mOk!\033[0m')
+
+def convert_interfaces():
+    """
+    Выгружаем конфигурацию интерфейсов в файл data_ug/network/config_interfaces.json для последующей загрузки в NGFW.
+    """
+    print('Экспорт интерфейсов')
+    if not os.path.isdir('data_ug/network'):
+        os.makedirs('data_ug/network')
+
+    config = []
+    try:
+        with open("data_cp/config_cp.txt", "r") as fh:
+            for line in fh:
+                x = line.strip('\n').split(' ')
+                if x[0] in ('set', 'add'):
+                    config.append(x)
+    except FileNotFoundError:
+        print(f'\t\033[31m\tНе найден файл "data_cp/config_cp.txt" с конфигурацией Check Point!\033[0;0m')
+        sys.exit(1)
+
+    cp_conf = {}
+    vlans = []
+    mgmt_iface = ''
+    net_untr = ''
+    for item in config:
+        key = item.pop(0)
+        l = len(item)
+        if item[0] == 'management':
+            mgmt_iface = item[2]
+        elif item[0] == 'interface':
+            if key == 'set':
+                try:
+                    cp_conf[item[1]].update({item[i]: item[i+1] if i+1 < l else '' for i in range(2,l,2)})
+                except KeyError:
+                    cp_conf[item[1]] = {item[i]: item[i+1] if i+1 < l else '' for i in range(2,l,2)}
+            elif key  == 'add':
+                if item[2] == 'vlan':
+                    vlans.append(item[3])
+        elif item[0] == 'static-route':
+            if item[1] == 'default':
+                net_untr = item[5].rpartition('.')[0]
+
+    array = []
+    for key, value in cp_conf.items():
+        ifname = key.partition('.')
+        name = ifname[0].replace('eth', 'port')
+        if 'ipv4-address' in value:
+            zone = 'Untrusted' if value['ipv4-address'].startswith(net_untr) else 'Trusted'
+        else:
+            zone = 0
+        if ifname[2] and ifname[2] in vlans:
+            tmp = {
+                'id': f'{name}.{ifname[2]}',
+                'zone_id': zone,
+                'master': False,
+                'description': value['comments'] if 'comments' in value else '',
+                'netflow_profile': 'undefined',
+                'tap': False,
+                'name': f'{name}.{ifname[2]}',
+                'enabled': False,
+                'kind': 'vlan',
+                'mtu': int(value['mtu']) if 'mtu' in value else 1500,
+                'ipv4': [f"{value['ipv4-address']}/{value['mask-length']}"] if 'ipv4-address' in value else [],
+                'vlan_id': int(ifname[2]),
+                'link': name,
+                'mode': 'static' if 'ipv4-address' in value else 'manual'
+            }
+            array.append(tmp)
+        else:
+            if key == 'lo':
+                continue
+            if key == mgmt_iface:
+                name = 'port0'
+                zone = 'Management'
+            tmp = {
+                'id': name,
+                'zone_id': zone,
+                'master': False,
+                'description': value['comments'] if 'comments' in value else '',
+                'netflow_profile': 'undefined',
+                'tap': False,
+                'name': name,
+                'enabled': True,
+                'kind': 'adapter',
+                'mtu': int(value['mtu']) if 'mtu' in value else 1500,
+                'ipv4': [f"{value['ipv4-address']}/{value['mask-length']}"] if 'ipv4-address' in value else [],
+                'mode': 'static' if 'ipv4-address' in value else 'manual'
+            }
+            array.append(tmp)
+
+    with open("data_ug/network/config_interfaces.json", "w") as fh:
+        json.dump(array, fh, indent=4, ensure_ascii=False)
+    print(f'\tКонфигурация интерфейсов выгружена в файл "data_ug/network/config_interfaces.json".')
+            
+    with open("data_cp/config_cp.json", "w") as fh:
+        json.dump(cp_conf, fh, indent=4, ensure_ascii=False)
+    
+def convert_gateways(cp):
+    """
+    Выгружаем список шлюзов в файл data_ug/network/config_gateways.json для последующей загрузки в NGFW.
+    """
+    print('Экспорт списка шлюзов: ')
+    if not os.path.isdir('data_ug/network'):
+        os.makedirs('data_ug/network')
+    file_name = f"data_cp/{cp}_gateway_objects_pp.json"
+
+    with open(f"{file_name}", "r") as fh:
+        data = json.load(fh)
+
+    gateways = []
+    for item in data:
+        try:
+            for iface in item['interfaces']:
+                if iface['topology']['leads-to-internet']:
+                    gateways.append(
+                        {
+                            'name': iface['ipv4-address'],
+                            'description': '',
+                            'iface': iface['interface-name'],
+                            'ipv4': iface['ipv4-address'],
+                            'weight': 1,
+                            'default': True,
+                            'enabled': True,
+                            'active': True,
+                            'multigate': False,
+                            'is_automatic': False,
+                            'vrf': 'default'
+                        }
+                    )
+        except KeyError as err:
+            print(f'\tПроизошла ошибка при выгрузке шлюзов!\n\t{err}')
+            return
+
+    with open("data_ug/network/config_gateways.json", "w") as fh:
+        json.dump(gateways, fh, indent=4, ensure_ascii=False)
+    print(f'\tСписок шлюзов выгружен в файл "data_ug/network/config_gateways.json".')
 
 ##### Импорт ######
 def import_services(utm):
@@ -596,6 +754,79 @@ def import_categories_groups(utm):
                 except Exception as err:
                     print(f'\t\t\033[31mСодержимое группы URL категорий "{item["name"]}" не будет добавлено.\n\t\t{err}\033[0m')
 
+def import_interfaces(utm):
+    """Импортировать интерфесы"""
+    print('Импорт списка "Интерфейсы" раздела "Сеть":')
+    try:
+        with open("data_ug/network/config_interfaces.json", "r") as fh:
+            data = json.load(fh)
+    except FileNotFoundError as err:
+        print(f'\t\033[31mСписок "Интерфейсы" не импортированы!\n\tНе найден файл "data/network/config_interfaces.json" с сохранённой конфигурацией!\033[0;0m')
+        return
+
+    management_port = ''
+    slave_interfaces = set()
+    interfaces_list = {}
+    vpn_ips = set()
+
+    zones = utm.get_zones_list()
+
+    result = utm.get_interfaces_list()
+    for item in result:
+        interfaces_list[item['name']] = item['kind']
+        if item['master']:
+            slave_interfaces.add(item['name'])
+        for ip in item['ipv4']:
+            if ip.startswith(utm.server_ip):
+                management_port = item["name"]
+                print(f'\tИнтерфейс "{item["name"]}" [{utm.server_ip}] используется для текущей сессии - \033[32mNot updated!\033[0;0m')
+        if item['kind'] == 'vpn':
+            vpn_ips.update({x[:x.rfind('.')] for x in item['ipv4']})
+
+    # Update сетевых адаптеров
+    for item in data:
+        if item['zone_id']:
+            try:
+                item['zone_id'] = zones[item['zone_id']]
+            except KeyError as err:
+                print(f'\t\033[33mЗона {err} для интерфейса "{item["name"]}" не найдена.\n\t\Создайте зону {err}.\033[0m')
+                item['zone_id'] = 0
+
+        if item['kind'] == 'adapter' and item['name'] != management_port:
+            if item['name'] in interfaces_list:
+                if item['name'] in slave_interfaces:
+                    print(f'\tСетевой адаптер "{item["name"]}" не обновлён так как является slave интерфейсом!')
+                else:
+                    print(f'\tПрименение настроек для сетевого адаптера "{item["name"]}"', end= ' - ')
+                    utm.update_interface(item['name'], item)
+            else:
+                print(f'\t\033[33mСетевой адаптер "{item["name"]}" не существует!\033[0m')
+
+    # Импорт интерфейсов VLAN
+    for item in data:
+        if 'kind' in item and item['kind'] == 'vlan':
+            if item['link'] not in slave_interfaces:
+                try:
+                    if interfaces_list[item['link']] in ('bridge', 'bond', 'adapter'):
+                        if item['name'] in interfaces_list:
+                            print(f'\tИнтерфейс "{item["name"]}" уже существует', end= ' - ')
+                            utm.update_interface(item['name'], item)
+                        else:
+                            item.pop('kind')
+                            err, result = utm.add_interface_vlan(item)
+                            if err == 2:
+                                print(f'\033[33m\tИнтерфейс "{item["name"]}" не добавлен!\033[0m')
+                                print(f"\033[31m{result}\033[0m")
+                            else:
+                                interfaces_list[item['name']] = 'vlan'
+                                print(f'\tИнтерфейс "{item["name"]}" добавлен.')
+                    else:
+                        print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен, так как ссылается на интерфейс "{item["link"]}" с недопустимым типом!\033[0m')
+                except KeyError:
+                    print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен, так как ссылается на несуществующий интерфейс "{item["link"]}"!\033[0m')
+            else:
+                print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен, так как ссылается на slave-порт принадлежащий другому интерфейсу!\033[0m')
+
 def menu1():
     print("\033c")
     print(f"\033[1;36;43mUserGate\033[1;37;43m                  Конвертация конфигурации с CheckPoint на NGFW                 \033[1;36;43mUserGate\033[0m\n")
@@ -629,11 +860,12 @@ def main():
     try:
         while True:
             mode = menu1()
+            cp = 'Main_4600'
             if mode == 1:
                 try:
-#                    convert_file()
+                    convert_file()
 
-                    with open("data_cp/Main_4600_objects_pp.json", "r") as fh:
+                    with open(f"data_cp/{cp}_objects_pp.json", "r") as fh:
                         data = json.load(fh)
                     objects = {x['uid']: x for x in data}
 
@@ -644,12 +876,14 @@ def main():
                     convert_application_group(objects)
                     convert_access_role(objects)
                     convert_other(objects)
-#                    convert_access_rule(objects)
                     with open("objects.json", "w") as fh:
                         json.dump(objects, fh, indent=4, ensure_ascii=False)
-#                except json.JSONDecodeError as err:
-#                    print(f'\n\033[31mОшибка парсинга конфигурации: {err}\033[0m')
-#                    sys.exit(1)
+                    convert_interfaces()
+#                    convert_access_rule(cp, objects)
+#                    convert_gateways(cp)
+                except json.JSONDecodeError as err:
+                    print(f'\n\033[31mОшибка парсинга конфигурации: {err}\033[0m')
+                    sys.exit(1)
                 finally:
                     print("\n\033[32mКонвертация конфигурации CheckPoin в файлы json завершён.\033[0m")
                     while True:
@@ -665,11 +899,12 @@ def main():
                     print("\n")
                     utm = UTM(server_ip, login, password)
                     utm.connect()
-#                    import_url_lists(utm)        
-#                    import_services(utm)
-#                    import_ip_lists(utm)
-#                    import_application_groups(utm)
+                    import_url_lists(utm)        
+                    import_services(utm)
+                    import_ip_lists(utm)
+                    import_application_groups(utm)
                     import_categories_groups(utm)
+                    import_interfaces(utm)
                 except json.JSONDecodeError as err:
                     print(f'\n\033[31mОшибка парсинга конфигурации: {err}\033[0m')
                     utm.logout()
