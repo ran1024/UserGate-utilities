@@ -1,10 +1,11 @@
 #!/usr/bin/python3
-# Версия 0.3
+# Версия 0.4
 # программа предназначена для переноса конфигурации с CheckPoint на NGFW версии 6.
 #
 
 import os, sys, json
 import stdiomask
+import ipaddress
 from services import ServicePorts, character_map, dict_risk, url_category, l7categories, l7apps, none_apps
 from utm import UTM
 
@@ -526,48 +527,68 @@ def convert_interfaces():
         json.dump(array, fh, indent=4, ensure_ascii=False)
     print(f'\tКонфигурация интерфейсов выгружена в файл "data_ug/network/config_interfaces.json".')
             
-    with open("data_cp/config_cp.json", "w") as fh:
-        json.dump(cp_conf, fh, indent=4, ensure_ascii=False)
-    
-def convert_gateways(cp):
+def convert_routes():
     """
-    Выгружаем список шлюзов в файл data_ug/network/config_gateways.json для последующей загрузки в NGFW.
+    Выгружаем список маршрутов в файл data_ug/network/config_routers.json для последующей загрузки в NGFW.
     """
-    print('Экспорт списка шлюзов: ')
+    print('Экспорт списка маршрутов: ')
     if not os.path.isdir('data_ug/network'):
         os.makedirs('data_ug/network')
-    file_name = f"data_cp/{cp}_gateway_objects_pp.json"
+    try:
+        with open("data_ug/network/config_interfaces.json", "r") as fh:
+            data = json.load(fh)
+    except FileNotFoundError as err:
+        print(f'\t\033[31m\tНе найден файл "data_ug/network/config_interfaces.json"!\033[0;0m')
+        sys.exit(1)
 
-    with open(f"{file_name}", "r") as fh:
-        data = json.load(fh)
+    net_list = {ipaddress.ip_interface(x['ipv4'][0]).network: x['name'] for x in data if x['ipv4']}
 
-    gateways = []
-    for item in data:
-        try:
-            for iface in item['interfaces']:
-                if iface['topology']['leads-to-internet']:
-                    gateways.append(
-                        {
-                            'name': iface['ipv4-address'],
-                            'description': '',
-                            'iface': iface['interface-name'],
-                            'ipv4': iface['ipv4-address'],
-                            'weight': 1,
-                            'default': True,
-                            'enabled': True,
-                            'active': True,
-                            'multigate': False,
-                            'is_automatic': False,
-                            'vrf': 'default'
-                        }
-                    )
-        except KeyError as err:
-            print(f'\tПроизошла ошибка при выгрузке шлюзов!\n\t{err}')
-            return
+    config = []
+    try:
+        with open("data_cp/config_cp.txt", "r") as fh:
+            for line in fh:
+                x = line.strip('\n').split(' ')
+                if x[0] in ('set', 'add'):
+                    config.append(x)
+    except FileNotFoundError:
+        print(f'\t\033[31m\tНе найден файл "data_cp/config_cp.txt" с конфигурацией Check Point!\033[0;0m')
+        sys.exit(1)
 
-    with open("data_ug/network/config_gateways.json", "w") as fh:
-        json.dump(gateways, fh, indent=4, ensure_ascii=False)
-    print(f'\tСписок шлюзов выгружен в файл "data_ug/network/config_gateways.json".')
+    vrfs = [{
+        'name': 'default',
+        'routes': [],
+        'ospf': {},
+        'bgp': {},
+        'rip': {},
+        'pimsm': {}
+    }]
+    for item in config:
+        item.pop(0)
+        l = len(item)
+        if item[0] == 'static-route':
+            if item[1] == 'default':
+                continue
+            ifname = 'undefined'
+            for net in net_list:
+                if ipaddress.ip_address(item[5]) in net:
+                    ifname = net_list[net]
+            route = {
+                'name': item[1],
+                'description': '',
+                'dest': item[1],
+                'metric': 0,
+                'enabled': True if item[6] == 'on' else False,
+                'gateway': item[5],
+                'ifname': ifname
+            }
+            vrfs[0]['routes'].append(route)
+
+    with open("data_ug/network/config_routers.json", "w") as fh:
+        json.dump(vrfs, fh, indent=4, ensure_ascii=False)
+    print(f'\tСписок маршрутов выгружен в файл "data_ug/network/config_routers.json".')
+
+#    with open("data_cp/config_cp.json", "w") as fh:
+#        json.dump(cp_conf, fh, indent=4, ensure_ascii=False)
 
 ##### Импорт ######
 def import_services(utm):
@@ -827,6 +848,36 @@ def import_interfaces(utm):
             else:
                 print(f'\033[33m\tИнтерфейс "{item["name"]}" пропущен, так как ссылается на slave-порт принадлежащий другому интерфейсу!\033[0m')
 
+def import_virt_routes(utm):
+    """Импортировать список виртуальных маршрутизаторов"""
+    print(f'Импорт списка "Виртуальные маршрутизаторы" раздела "Сеть":')
+    try:
+        with open("data_ug/network/config_routers.json", "r") as fh:
+            data = json.load(fh)
+    except FileNotFoundError as err:
+        print(f'\t\033[31mВиртуальные маршрутизаторы не импортированы!\n\tНе найден файл "data_ug/network/config_routers.json" с сохранённой конфигурацией!\033[0;0m')
+        return
+
+    if not data:
+        print('\tНет данных для импорта. Файл "data_ug/network/config_routers.json" пуст.')
+        return
+
+    virt_routers = {x['name']: x['id'] for x in utm.get_routers_list()}
+
+    for item in data:
+        if item['name'] in virt_routers:
+            err, result = utm.update_routers_rule(virt_routers[item['name']], item)
+            if err == 2:
+                print(f'\033[31m{result}\033[0m')
+            else:
+                print(f'\tВиртуальный маршрутизатор "{item["name"]}" - \033[32mUpdated!\033[0m')
+        else:
+            err, result = utm.add_routers_rule(item)
+            if err == 2:
+                print(f'\033[31m{result}\033[0m')
+            else:
+                print(f'\tСоздан виртуальный маршрутизатор "{item["name"]}".')
+
 def menu1():
     print("\033c")
     print(f"\033[1;36;43mUserGate\033[1;37;43m                  Конвертация конфигурации с CheckPoint на NGFW                 \033[1;36;43mUserGate\033[0m\n")
@@ -879,8 +930,8 @@ def main():
                     with open("objects.json", "w") as fh:
                         json.dump(objects, fh, indent=4, ensure_ascii=False)
                     convert_interfaces()
+                    convert_routes()
 #                    convert_access_rule(cp, objects)
-#                    convert_gateways(cp)
                 except json.JSONDecodeError as err:
                     print(f'\n\033[31mОшибка парсинга конфигурации: {err}\033[0m')
                     sys.exit(1)
@@ -905,11 +956,12 @@ def main():
                     import_application_groups(utm)
                     import_categories_groups(utm)
                     import_interfaces(utm)
+                    import_virt_routes(utm)
                 except json.JSONDecodeError as err:
                     print(f'\n\033[31mОшибка парсинга конфигурации: {err}\033[0m')
                     utm.logout()
                     sys.exit(1)
-                finally:
+                else:
                     utm.logout()
                     print("\n\033[32mИмпорт конфигурации CheckPoin на UTM завершён.\033[0m")
                     while True:
@@ -919,7 +971,7 @@ def main():
 
     except KeyboardInterrupt:
         print("\nПрограмма принудительно завершена пользователем.")
-
+        sys.exit()
     print('\033[32mИмпорт конфигурации завершён.\033[0m')
 
 if __name__ == '__main__':

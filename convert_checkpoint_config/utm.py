@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Версия 0.3
+# Версия 0.4
 # Общий класс для работы с xml-rpc
 import sys
 import xmlrpc.client as rpc
@@ -477,10 +477,7 @@ class UTM:
     def get_routers_list(self):
         """Получить список маршрутов"""
         try:
-            if self.version.startswith('6'):
-                result = self._server.v1.netmanager.virtualrouters.list(self._auth_token)
-            else:
-                result = self._server.v1.netmanager.route.list(self._auth_token, self.node_name, {})
+            result = self._server.v1.netmanager.virtualrouters.list(self._auth_token)
         except rpc.Fault as err:
             print(f"Ошибка utm.get_routers_list: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
