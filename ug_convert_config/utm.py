@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Версия 2.8
+# Версия 2.9
 # Общий класс для работы с xml-rpc
 import sys
 import xmlrpc.client as rpc

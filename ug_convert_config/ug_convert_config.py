@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Версия 2.8
+# Версия 2.9
 # Программа предназначена для переноса конфигурации с UTM версии 5 на версию 6
 # или между устройствами 6-ой версии.
 #
@@ -3828,17 +3828,37 @@ class UTM(UtmXmlRpc):
             self.set_src_zone_and_ips(item)
             self.set_dst_zone_and_ips(item)
             self.get_names_users_and_groups(item)
-            if item['certificate_id'] != -1:
-                item['certificate_id'] = ssl_certificates[item['certificate_id']]
+            try:
+                if item['certificate_id'] != -1:
+                    item['certificate_id'] = ssl_certificates[item['certificate_id']]
+            except KeyError:
+                print(f'\t\033[33mВ правиле "{item["name"]}" указан несуществующий сертификат.\033[0m')
+                item['certificate_id'] = -1
+                item['is_https'] = False                
             if self.version.startswith('6'):
-                if item['ssl_profile_id']:
-                    item['ssl_profile_id'] = ssl_profiles[item['ssl_profile_id']]
+                try:
+                    if item['ssl_profile_id']:
+                        item['ssl_profile_id'] = ssl_profiles[item['ssl_profile_id']]
+                except KeyError:
+                    print(f'\t\033[33mВ правиле "{item["name"]}" указан несуществующий профиль SSL.\033[0m')
+                    item['ssl_profile_id'] = 0
+                    item['is_https'] = False                
             else:
                 item['ssl_profile_id'] = 0
-            for x in item['user_agents']:
-                x[1] = self.list_useragent[x[1]] if x[0] == 'list_id' else x[1]
+            try:
+                for x in item['user_agents']:
+                    x[1] = self.list_useragent[x[1]] if x[0] == 'list_id' else x[1]
+            except KeyError as err:
+                print(f'\t\033[33mВ правиле "{item["name"]}" указан несуществующий Useragent.\033[0m')
+                print(f'\t\t\033[33mУстановлено значение по умолчанию.\033[0m')
+                item['user_agents'] = []
             for x in item['servers']:
-                x[1] = self.reverse_servers[x[1]] if x[0] == 'profile' else self.reverse_rules[x[1]]
+                try:
+                    x[1] = self.reverse_servers[x[1]] if x[0] == 'profile' else self.reverse_rules[x[1]]
+                except KeyError as err:
+                    print(f'\t\033[33mВ правиле "{item["name"]}" указан несуществующий сервер reverse-прокси или балансировщик.\033[0m')
+                    print(f'\t\t\033[33mУстановлено значение по умолчанию.\033[0m')
+                    x = ['profile', 'Example reverse proxy server']
 
         with open("data/proxy_portal/config_reverseproxy_rules.json", "w") as fd:
             json.dump(data, fd, indent=4, ensure_ascii=False)
