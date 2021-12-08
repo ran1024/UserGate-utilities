@@ -1290,7 +1290,7 @@ class UtmXmlRpc:
             result = self._server.v1.auth.ldap.servers.list(self._auth_token, {})
             for x in result:
                 domains = [y.lower() for y in x['domains']]
-                if ldap_domain.lower() in domains:
+                if x['enabled'] and ldap_domain.lower() in domains:
                     users = self._server.v1.ldap.users.list(self._auth_token, x['id'], user_name)
         except rpc.Fault as err:
             return 1, f"\tОшибка utm.get_ldap_user_guid: [{err.faultCode}] — {err.faultString}\n\tПроверьте настройки LDAP-коннектора!"
@@ -1298,7 +1298,7 @@ class UtmXmlRpc:
 
     def get_ldap_group_guid(self, ldap_domain, group_name):
         """Получить GUID группы LDAP по её имени"""
-        user = []
+        groups = []
         try:
             result = self._server.v1.auth.ldap.servers.list(self._auth_token, {})
             for x in result:
