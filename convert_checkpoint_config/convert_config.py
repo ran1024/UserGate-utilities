@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Версия 0.4
+# Версия 0.5
 # программа предназначена для переноса конфигурации с CheckPoint на NGFW версии 6.
 #
 
@@ -399,39 +399,92 @@ def convert_access_rule(cp, objects):
     if cp == 'Main_4600':
         file_name = f"data_cp/{cp} Firewall-Management server_pp.json"
 
+    with open("data_ug/library/ip_list.json", "r") as fh:
+        ip_list = {x['name']: ipaddress.ip_interface(x['content'][0]['value'].partition('-')[0]).ip for x in json.load(fh)}
+    private_ips = (ipaddress.ip_network('10.0.0.0/8'), ipaddress.ip_network('172.16.0.0/12'), ipaddress.ip_network('192.168.0.0/16'))
+
     with open(f"{file_name}", "r") as fh:
         data = json.load(fh)
 
+    fw_rules = []
     for item in data:
         if item['type'] == 'access-rule':
+            if item['name'] == 'Cleanup rule':
+                continue
+            item['content'] = [objects[uid] for uid in item['content'] if objects[uid] != 'Any']
+#            item['vpn'] = [objects[uid] for uid in item['vpn']]# if objects[uid] != 'Any']
             item['source'] = [objects[uid] for uid in item['source'] if objects[uid] != 'Any']
             item['destination'] = [objects[uid] for uid in item['destination'] if objects[uid] != 'Any']
-            item['content'] = [objects[uid] for uid in item['content'] if objects[uid] != 'Any']
-            item['vpn'] = [objects[uid] for uid in item['vpn']]# if objects[uid] != 'Any']
-#            for uid in item['service']:
-#                if objects[uid]['services'] == 'UserCheck':
-#                    print(objects[uid])
-            item['position'] = item['rule-number']
-            item['services'] = list({objects[uid]['services'] for uid in item['service'] if objects[uid] != 'Any'})
-            item['services_negate'] = item['service-negate']
-            item['log'] = True if True in item['track'].values() else False
-            item['log_session_start'] = item['log']
-            item['action'] = objects[item['action']]
-            item['description'] = item['comments']
-            item.pop('meta-info', None)
-            item.pop('domain', None)
-            item.pop('uid', None)
-            item.pop('custom-fields', None)
-            item.pop('install-on', None)
-            item.pop('service', None)
-            item.pop('service-negate', None)
-            item.pop('track', None)
-            item.pop('action-settings', None)
-            item.pop('comments', None)
-            item.pop('rule-number', None)
+            rule = {
+                'name': item['name'],
+                'description': item['comments'],
+                'action': objects[item['action']],
+                'position': item['rule-number'],
+                'scenario_rule_id': False,
+                'src_zones': [],
+                'src_ips': [],
+                'dst_zones': [],
+                'dst_ips': [],
+                'services': list({objects[uid]['services'] for uid in item['service'] if objects[uid] != 'Any'}),
+                'apps': item['content'],
+                'users': [],
+                'enabled': False,
+                'limit': True,
+                'lmit_value': '3/h',
+                'lmit_burst': 5,
+                'log': True if True in item['track'].values() else False,
+                'log_session_start': True if True in item['track'].values() else False,
+                'src_zones_negate': False,
+                'dst_zones_negate': False,
+                'src_ips_negate': item['source-negate'],
+                'dst_ips_negate': item['destination-negate'],
+                'services_negate': item['service-negate'],
+                'apps_negate': item['content-negate'],
+                'fragmented': 'ignore',
+                'time_restrictions': [],
+                'send_host_icmp': '',
+            }
+            tmp_ips_set = set()
+            tmp_zones_set = set()
+            for src in item['source']:
+                if 'networks' in src:
+                    tmp_ips_set.update(set(x['ip-list'] for x in src['networks']))
+                    rule['users'].extend(src['users'])
+                elif 'ip-list' in src:
+                    tmp_ips_set.add(src['ip-list'])
+                else:
+                    tmp_zones_set.add('Management')
+            rule['src_ips'] = [['list_id', x] for x in tmp_ips_set]
+            rule['src_zones'] = [x for x in tmp_zones_set]
+            tmp_ips_set.clear()
+            tmp_zones_set.clear()
+            for dst in item['destination']:
+                if 'ip-list' in dst:
+                    tmp_ips_set.add(dst['ip-list'])
+                else:
+                    tmp_zones_set.add('Management')
+            rule['dst_ips'] = [['list_id', x] for x in tmp_ips_set]
+            rule['dst_zones'] = [x for x in tmp_zones_set]
 
-    with open("4600_firewall_rab.json", "w") as fh:
-        json.dump(data, fh, indent=4, ensure_ascii=False)
+            if rule['src_ips']:
+                ip = ip_list[rule['src_ips'][0][1]]
+                if any(ip in network for network in private_ips):
+                    rule['src_zones'].append('Trusted')
+                else:
+                    rule['src_zones'].append('Untrusted')
+            if rule['dst_ips']:
+                ip = ip_list[rule['dst_ips'][0][1]]
+                if any(ip in network for network in private_ips):
+                    rule['dst_zones'].append('Trusted')
+                else:
+                    rule['dst_zones'].append('Untrusted')
+
+            fw_rules.append(rule)
+
+    if not os.path.isdir('data_ug/network_policies'):
+        os.makedirs('data_ug/network_policies')
+    with open("data_ug/network_policies/config_firewall_rules.json", "w") as fh:
+        json.dump(fw_rules, fh, indent=4, ensure_ascii=False)
     print('\033[32mOk!\033[0m')
 
 def convert_interfaces():
@@ -587,9 +640,6 @@ def convert_routes():
         json.dump(vrfs, fh, indent=4, ensure_ascii=False)
     print(f'\tСписок маршрутов выгружен в файл "data_ug/network/config_routers.json".')
 
-#    with open("data_cp/config_cp.json", "w") as fh:
-#        json.dump(cp_conf, fh, indent=4, ensure_ascii=False)
-
 ##### Импорт ######
 def import_services(utm):
     """Импортировать список сервисов раздела библиотеки"""
@@ -729,7 +779,12 @@ def import_application_groups(utm):
         else:
             print(f'\tГруппа приложений "{item["name"]}" добавлена.')
             if content:
-                content = [{'value': l7apps[x['value']]} for x in content]
+                try:
+                    content = [{'value': l7apps[x['value']]} for x in content]
+                except KeyError as err:
+                    print(f'\t\t\033[31mНе найдены стандартные приложения.\033[0m')
+                    print(f'\t\t\033[31mВведите лицензионный ключ и дождитесь обновления списков UserGate.\033[0m')
+                    return
                 try:
                     err2, result2 = utm.add_nlist_items(result, content)
                     if err2 != 0:
@@ -878,6 +933,131 @@ def import_virt_routes(utm):
             else:
                 print(f'\tСоздан виртуальный маршрутизатор "{item["name"]}".')
 
+def import_firewall_rules(utm):
+    """Импортировать список правил межсетевого экрана"""
+    print('Импорт списка "Межсетевой экран" раздела "Политики сети":')
+    try:
+        with open("data_ug/network_policies/config_firewall_rules.json", "r") as fh:
+            data = json.load(fh)
+    except FileNotFoundError as err:
+        print(f'\t\033[31mСписок "Межсетевой экран" не импортирован!\n\tНе найден файл "data/network_policies/config_firewall_rules.json" с сохранённой конфигурацией!\033[0;0m')
+        return
+
+    if not data:
+        print("\tНет правил межсетевого экрана для импорта.")
+        return
+
+    firewall_rules = utm.get_firewall_rules()
+    services_list = utm.get_services_list()
+    zones = utm.get_zones_list()
+    list_ip = utm.get_nlists_list('network')
+    list_users = utm.get_users_list()
+    list_groups = utm.get_groups_list()
+
+    for item in data:
+        get_guids_users_and_groups(utm, item, list_users, list_groups)
+        set_src_zone_and_ips(item, zones, list_ip)
+        set_dst_zone_and_ips(item, zones, list_ip)
+        try:
+            item['services'] = [services_list[x] for x in item['services']]
+        except KeyError as err:
+            print(f'\t\033[33mНе найден сервис {err} для правила "{item["name"]}".\n\tЗагрузите сервисы и повторите попытку.\033[0m')
+            item['services'] = []
+
+        if item['name'] in firewall_rules:
+            print(f'Правило МЭ "{item["name"]}" уже существует', end= ' - ')
+            err1, result1 = utm.update_firewall_rule(firewall_rules[item['name']], item)
+            if err1 != 0:
+                print("\n", f"\033[31m{result1}\033[0m")
+            else:
+                print("\033[32mUpdated!\033[0;0m")
+        else:
+            err, result = utm.add_firewall_rule(item)
+            if err != 0:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                firewall_rules[item["name"]] = result
+                print(f'\tПравило МЭ "{item["name"]}" добавлено.')
+
+def set_src_zone_and_ips(item, zones, list_ip={}, list_url={}):
+    if item['src_zones']:
+        try:
+            item['src_zones'] = [zones[x] for x in item['src_zones']]
+        except KeyError as err:
+            print(f'\t\033[33mИсходная зона {err} для правила "{item["name"]}" не найдена.\n\tЗагрузите список зон и повторите попытку.\033[0m')
+            item['src_zones'] = []
+    if item['src_ips']:
+        try:
+            for x in item['src_ips']:
+                if x[0] == 'list_id':
+                    x[1] = list_ip[x[1]]
+                elif x[0] == 'urllist_id':
+                    x[1] = list_url[x[1]]
+        except KeyError as err:
+            print(f'\t\033[33mНе найден адрес источника {err} для правила "{item["name"]}".\n\tЗагрузите списки IP-адресов и URL и повторите попытку.\033[0m')
+            item['src_ips'] = []
+
+def set_dst_zone_and_ips(item, zones, list_ip={}, list_url={}):
+    if item['dst_zones']:
+        try:
+            item['dst_zones'] = [zones[x] for x in item['dst_zones']]
+        except KeyError as err:
+            print(f'\t\033[33mЗона назначения {err} для правила "{item["name"]}" не найдена.\n\tЗагрузите список зон и повторите попытку.\033[0m')
+            item['dst_zones'] = []
+    if item['dst_ips']:
+        try:
+            for x in item['dst_ips']:
+                if x[0] == 'list_id':
+                    x[1] = list_ip[x[1]]
+                elif x[0] == 'urllist_id':
+                    x[1] = list_url[x[1]]
+        except KeyError as err:
+            print(f'\t\033[33mНе найден адрес назначения {err} для правила "{item["name"]}".\n\tЗагрузите списки IP-адресов и URL и повторите попытку.\033[0m')
+            item['dst_ips'] = []
+
+def get_guids_users_and_groups(utm, item, list_users, list_groups):
+    """
+    Получить GUID-ы групп и пользователей по их именам.
+    Заменяет имена локальных и доменных пользователей и групп на GUID-ы.
+    """
+    if 'users' in item.keys() and item['users']:
+        users = []
+        for x in item['users']:
+            if x[0] == 'user' and x[1]:
+                i = x[1].partition("\\")
+                if i[2]:
+                    err, result = utm.get_ldap_user_guid(i[0], i[2])
+                    if err != 0:
+                        print(f"\033[31m{result}\033[0m")
+                    elif not result:
+                        print(f'\t\033[31mНет LDAP-коннектора для домена "{i[0]}"!\n\tИмпортируйте и настройте LDAP-коннектор. Затем повторите импорт.\033[0m')
+                    else:
+                        x[1] = result
+                        users.append(x)
+                else:
+                    x[1] = list_users[x[1]]
+                    users.append(x)
+
+            elif x[0] == 'group' and x[1]:
+                i = x[1].partition("\\")
+                if i[2]:
+                    err, result = utm.get_ldap_group_guid(i[0], i[2])
+                    if err != 0:
+                        print(f"\033[31m{result}\033[0m")
+                    elif not result:
+                        print(f'\t\033[31mНет LDAP-коннектора для домена "{i[0]}"!\n\tИмпортируйте и настройте LDAP-коннектор. Затем повторите импорт групп.\033[0m')
+                    else:
+                        x[1] = result
+                        users.append(x)
+                else:
+                    x[1] = list_groups[x[1]]
+                    users.append(x)
+            elif x[0] == 'special' and x[1]:
+                users.append(x)
+        item['users'] = users
+    else:
+        item['users'] = []
+
 def menu1():
     print("\033c")
     print(f"\033[1;36;43mUserGate\033[1;37;43m                  Конвертация конфигурации с CheckPoint на NGFW                 \033[1;36;43mUserGate\033[0m\n")
@@ -931,7 +1111,7 @@ def main():
                         json.dump(objects, fh, indent=4, ensure_ascii=False)
                     convert_interfaces()
                     convert_routes()
-#                    convert_access_rule(cp, objects)
+                    convert_access_rule(cp, objects)
                 except json.JSONDecodeError as err:
                     print(f'\n\033[31mОшибка парсинга конфигурации: {err}\033[0m')
                     sys.exit(1)
@@ -957,6 +1137,7 @@ def main():
                     import_categories_groups(utm)
                     import_interfaces(utm)
                     import_virt_routes(utm)
+                    import_firewall_rules(utm)
                 except json.JSONDecodeError as err:
                     print(f'\n\033[31mОшибка парсинга конфигурации: {err}\033[0m')
                     utm.logout()

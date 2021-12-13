@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Версия 0.4
+# Версия 0.5
 # Общий класс для работы с xml-rpc
 import sys
 import xmlrpc.client as rpc
@@ -85,7 +85,7 @@ class UTM:
     def get_nlists_list(self, list_type):
         """Получить словарь {name: id} списков URL"""
         try:
-            result = self._server.v2.nlists.list(self._auth_token, list_type, 0, 1000, {})
+            result = self._server.v2.nlists.list(self._auth_token, list_type, 0, 5000, {})
         except rpc.Fault as err:
             print(f"Ошибка get_nlists_list: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
@@ -164,7 +164,7 @@ class UTM:
         except rpc.Fault as err:
             print(f"\tОшибка utm.get_groups_list: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
-        return len(result['items']), result['items']
+        return {x['name']: x['id'] for x in result['items']}
 
     def add_group(self, group):
         """Добавить локальную группу"""
@@ -205,7 +205,7 @@ class UTM:
         except rpc.Fault as err:
             print(f"\tОшибка get_users_list: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
-        return len(result['items']), result['items']
+        return {x['name']: x['id'] for x in result['items']}
 
     def add_user(self, user):
         """Добавить локального пользователя"""
@@ -237,19 +237,6 @@ class UTM:
         else:
             return 0, result     # Возвращает true
 
-    def get_auth_servers(self):
-        """Получить список серверов авторизации"""
-        try:
-            ldap = self._server.v1.auth.ldap.servers.list(self._auth_token, {})
-            radius = self._server.v1.auth.radius.servers.list(self._auth_token, {})
-            tacacs = self._server.v1.auth.tacacs.plus.server.list(self._auth_token, {})
-            ntlm = self._server.v1.auth.ntlm.server.list(self._auth_token, {})
-            saml = self._server.v1.auth.saml.idp.servers.list(self._auth_token, {})
-        except rpc.Fault as err:
-            print(f"\tОшибка utm.get_auth_servers: [{err.faultCode}] — {err.faultString}")
-            sys.exit(1)
-        return ldap, radius, tacacs, ntlm, saml
-
     def get_ldap_server_id(self, domain):
         """Получить ID сервера авторизации LDAP по имени домена"""
         try:
@@ -261,135 +248,14 @@ class UTM:
                 return 0, item['id']
         return 2, f"\tНет LDAP-коннектора для домена {domain}."
 
-    def add_auth_server(self, type, server):
-        """Добавить auth сервер"""
-        if server['name'] in self.auth_servers.keys():
-            return 1, f"\tСервер авторизации '{server['name']}' уже существует."
-        try:
-            if type == 'ldap':
-                result = self._server.v1.auth.ldap.server.add(self._auth_token, server)
-            elif type == 'ntlm':
-                result = self._server.v1.auth.ntlm.server.add(self._auth_token, server)
-            elif type == 'radius':
-                result = self._server.v1.auth.radius.server.add(self._auth_token, server)
-            elif type == 'tacacs':
-                result = self._server.v1.auth.tacacs.plus.server.add(self._auth_token, server)
-            elif type == 'saml':
-                result = self._server.v1.auth.saml.idp.server.add(self._auth_token, server)
-        except rpc.Fault as err:
-            return 2, f"\tОшибка utm.add_auth_server: [{err.faultCode}] — {err.faultString}"
-        else:
-            self.auth_servers[server['name']] = result
-            return 0, result     # Возвращает ID добавленного сервера авторизации
-
-    def get_auth_profiles(self):
-        """Получить список профилей авторизации"""
-        try:
-            result = self._server.v1.auth.user.auth.profiles.list(self._auth_token)
-        except rpc.Fault as err:
-            print(f"\tОшибка utm.get_auth_profiles: [{err.faultCode}] — {err.faultString}")
-            sys.exit(1)
-        return len(result), result
-
-    def add_auth_profile(self, profile):
-        """Добавить новый профиль авторизации"""
-        if profile['name'] in self.auth_profiles.keys():
-            return 1, f"\tПрофиль авторизации '{profile['name']}' уже существует."
-        try:
-            result = self._server.v1.auth.user.auth.profile.add(self._auth_token, profile)
-        except rpc.Fault as err:
-            if err.faultCode == 110:
-                return 2, f'\tПрофиль авторизации "{profile["name"]}" не добавлен — {err.faultString}.'
-            else:
-                return 2, f"\tОшибка utm.add_auth_profile: [{err.faultCode}] — {err.faultString}"
-        else:
-            self.auth_profiles[profile['name']] = result
-            return 0, result     # Возвращает ID добавленного профиля
-
-    def update_auth_profile(self, profile):
-        """Обновить профиль авторизации"""
-        try:
-            result = self._server.v1.auth.user.auth.profile.update(self._auth_token, profile['id'], profile)
-        except rpc.Fault as err:
-            return 1, f"\tОшибка utm.update_auth_profile: [{err.faultCode}] — {err.faultString}"
-        else:
-            return 0, result     # Возвращает True
-
-    def get_captive_profiles(self):
-        """Получить список Captive-профилей"""
-        try:
-            result = self._server.v1.captiveportal.profiles.list(self._auth_token, 0, 1000, '')
-        except rpc.Fault as err:
-            print(f"\tОшибка utm.get_captive_profiles: [{err.faultCode}] — {err.faultString}")
-            sys.exit(1)
-        return len(result['items']), result['items']
-
-    def add_captive_profile(self, profile):
-        """Добавить новый Captive-профиль"""
-        if profile['name'] in self.captive_profiles.keys():
-            return 1, f"\tПрофиль авторизации '{profile['name']}' уже существует."
-        try:
-            result = self._server.v1.captiveportal.profile.add(self._auth_token, profile)
-        except rpc.Fault as err:
-            if err.faultCode == 110:
-                return 2, f'\tПрофиль авторизации "{profile["name"]}" не добавлен — {err.faultString}.'
-            else:
-                return 2, f"\tОшибка utm.add_captive_profile: [{err.faultCode}] — {err.faultString}"
-        else:
-            self.captive_profiles[profile['name']] = result
-            return 0, result     # Возвращает ID добавленного профиля
-
-    def update_captive_profile(self, profile):
-        """Обновить Captive-профиль"""
-        try:
-            profile_id = self.captive_profiles[profile['name']]
-            result = self._server.v1.captiveportal.profile.update(self._auth_token, profile_id, profile)
-        except rpc.Fault as err:
-            return 1, f"\tОшибка utm.update_captive_profile: [{err.faultCode}] — {err.faultString}"
-        else:
-            return 0, result     # Возвращает True
-
-    def get_captive_portal_rules(self):
-        """Получить список правил Captive-попортала"""
-        try:
-            result = self._server.v1.captiveportal.rules.list(self._auth_token, 0, 1000, {})
-        except rpc.Fault as err:
-            print(f"\tОшибка utm.get_captive_portal_rules: [{err.faultCode}] — {err.faultString}")
-            sys.exit(1)
-        return len(result['items']), result['items']
-
-    def add_captive_portal_rules(self, rule):
-        """Добавить новое правило Captive-портала"""
-        if rule['name'] in self.captive_portal_rules.keys():
-            return 1, f'\tПравило Captive-портала "{rule["name"]}" уже существует.'
-        try:
-            result = self._server.v1.captiveportal.rule.add(self._auth_token, rule)
-        except rpc.Fault as err:
-            if err.faultCode == 110:
-                return 2, f'\tПравило Captive-портала "{rule["name"]}" не добавлено — {err.faultString}.'
-            else:
-                return 2, f"\tОшибка utm.add_captive_portal_rules: [{err.faultCode}] — {err.faultString}"
-        else:
-            self.captive_portal_rules[rule['name']] = result
-            return 0, result     # Возвращает ID добавленного правила
-
-    def update_captive_portal_rule(self, rule):
-        """Обновить правило Captive-портала"""
-        try:
-            rule_id = self.captive_portal_rules[rule['name']]
-            result = self._server.v1.captiveportal.rule.update(self._auth_token, rule_id, rule)
-        except rpc.Fault as err:
-            return 1, f"\tОшибка utm.update_captive_portal_rule: [{err.faultCode}] — {err.faultString}"
-        else:
-            return 0, result     # Возвращает True
-
     def get_ldap_user_guid(self, ldap_domain, user_name):
         """Получить GUID пользователя LDAP по его имени"""
         users = []
         try:
             result = self._server.v1.auth.ldap.servers.list(self._auth_token, {})
             for x in result:
-                if ldap_domain in x['domains']:
+                domains = [y.lower() for y in x['domains']]
+                if x['enabled'] and ldap_domain.lower() in domains:
                     users = self._server.v1.ldap.users.list(self._auth_token, x['id'], user_name)
         except rpc.Fault as err:
             return 1, f"\tОшибка utm.get_ldap_user_guid: [{err.faultCode}] — {err.faultString}\n\tПроверьте настройки LDAP-коннектора!"
@@ -397,44 +263,16 @@ class UTM:
 
     def get_ldap_group_guid(self, ldap_domain, group_name):
         """Получить GUID группы LDAP по её имени"""
-        user = []
+        groups = []
         try:
             result = self._server.v1.auth.ldap.servers.list(self._auth_token, {})
             for x in result:
-                if ldap_domain in x['domains']:
+                domains = [y.lower() for y in x['domains']]
+                if x['enabled'] and ldap_domain.lower() in domains:
                     groups = self._server.v1.ldap.groups.list(self._auth_token, x['id'], group_name)
         except rpc.Fault as err:
             return 1, f"\tОшибка utm.get_ldap_group_guid: [{err.faultCode}] — {err.faultString}\n\tПроверьте настройки LDAP-коннектора!"
         return 0, groups[0]['guid'] if groups else 0
-
-    def get_ldap_user_name(self, user_guid):
-        """Получить имя пользователя LDAP по его GUID"""
-        user = []
-        try:
-            result = self._server.v1.ldap.user.fetch(self._auth_token, user_guid)
-        except rpc.Fault as err:
-            if err.faultCode == 1:
-                return 2, f'\tНе возможно получить имя доменного пользователя.\n\tПроверьте что версия UTM 5.0.6.4973 (6.1.3.10697) или выше.'
-            else:
-                return 1, f"\tОшибка utm.get_ldap_user_name: [{err.faultCode}] — {err.faultString}\n\tПроверьте настройки LDAP-коннектора!"
-        name = result['name']
-        i = name.find('(')
-        return 0, name[i+1:len(name)-1]
-
-    def get_ldap_group_name(self, group_guid):
-        """Получить имя группы LDAP по её GUID"""
-        user = []
-        try:
-            result = self._server.v1.ldap.group.fetch(self._auth_token, group_guid)
-        except rpc.Fault as err:
-            if err.faultCode == 1:
-                return 2, f'\tНе возможно получить имя доменной группы.\n\tПроверьте что версия UTM 5.0.6.4973 (6.1.3.10697) или выше.'
-            else:
-                return 1, f"\tОшибка utm.get_ldap_group_name: [{err.faultCode}] — {err.faultString}\n\tПроверьте настройки LDAP-коннектора!"
-        data = [x.split('=') for x in result['name'].split(',')]
-        for y in data:
-            if y[0] == 'CN':
-                return 0, f"{result['guid'].split(':')[0]}\\{y[1]}"
 
 ####################################### Интерфейсы  #######################################
     def get_interfaces_list(self):
@@ -569,33 +407,29 @@ class UTM:
 
 ################### Политики сети ############################################################
     def get_firewall_rules(self):
-        """Получить список правил межсетевого экрана"""
+        """Получить список {name: id} правил межсетевого экрана"""
         try:
             result = self._server.v1.firewall.rules.list(self._auth_token, 0, 5000, {})
         except rpc.Fault as err:
             print(f"\tОшибка utm.get_firewall_rules: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
-        return len(result['items']), result['items']
+        return {x['name']: x['id'] for x in result['items']}
 
     def add_firewall_rule(self, rule):
         """Добавить новое правило в МЭ"""
-        if rule['name'] in self.firewall_rules.keys():
-            return 1, f'\tПравило МЭ "{rule["name"]}" уже существует.'
         try:
             result = self._server.v1.firewall.rule.add(self._auth_token, rule)
         except rpc.Fault as err:
             if err.faultCode == 110:
-                return 2, f'\tПравило МЭ "{rule["name"]}" не добавлено — {err.faultString}.'
+                return 1, f'\tПравило МЭ "{rule["name"]}" не добавлено — {err.faultString}.'
             else:
                 return 2, f"\tОшибка utm.add_firewall_rule: [{err.faultCode}] — {err.faultString}"
         else:
-            self.firewall_rules[rule['name']] = result
             return 0, result     # Возвращает ID добавленного правила
 
-    def update_firewall_rule(self, rule):
+    def update_firewall_rule(self, rule_id, rule):
         """Обновить правило МЭ"""
         try:
-            rule_id = self.firewall_rules[rule['name']]
             result = self._server.v1.firewall.rule.update(self._auth_token, rule_id, rule)
         except rpc.Fault as err:
             return 1, f"\tОшибка utm.update_firewall_rule: [{err.faultCode}] — {err.faultString}"
