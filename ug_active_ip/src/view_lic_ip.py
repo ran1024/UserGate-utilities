@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 #########################################################################################
-# Версия 0.2                                                                            #
+# Версия 0.3                                                                            #
 # Программа выводит число активных коннектов и список IP-адресов, занимающих лицензию.  #
 #########################################################################################
 
@@ -72,7 +72,12 @@ class UTM:
         try:
             result = self._server.v1.sysstat.active.ips.list(self._auth_token)
         except rpc.Fault as err:
-            print(f"Ошибка get_active_ips_list: [{err.faultCode}] — {err.faultString}")
+            if err.faultCode == 1:
+                print("    \033[33mAPI, необходимое для работы отсутствует на вашем UTM.")
+                print("    Обратитесь в техподдержку компании UserGate для исправления ситуации.\033[0m")
+                print("\nПрограмма завершена.\n")
+            else:
+                print(f"Ошибка get_active_ips_list: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
         return result
 
