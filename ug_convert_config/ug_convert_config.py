@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Версия 2.11
+# Версия 2.12
 # Программа предназначена для переноса конфигурации с UTM версии 5 на версию 6
 # или между устройствами 6-ой версии.
 #
@@ -599,6 +599,7 @@ class UTM(UtmXmlRpc):
                         print(f'\t\033[31mСписок "Списки URL" не импортирован!\n\tНе найден файл "data/library/url/{file_name}" с сохранённой конфигурацией!\033[0;0m')
                         return
 
+                    print(f'\tДобавляется список URL: "{url_list["name"]}".')
                     content = url_list.pop('content')
                     err, result = self.add_nlist(url_list)
                     if err == 1:
@@ -614,15 +615,17 @@ class UTM(UtmXmlRpc):
                         continue
                     else:
                         self.list_url[url_list['name']] = result
-                        print(f'\tДобавлен список URL: "{url_list["name"]}".')
+                        print(f'\t\tСписок URL: "{url_list["name"]}" добавлен.')
                     if content:
                         for item in content:
+                            print(f"\t\tURL '{item['value']}' добавляется в список.")
                             err2, result2 = self.add_nlist_item(result, item)
                             if err2 == 2:
+                                print(f"\033[31m\t\tURL '{item['value']}' не добавлен.\033[0m")
                                 print(f"\033[31m{result2}\033[0m")
-                        print(f'\tСодержимое списка "{url_list["name"]}" обновлено.')
+                        print(f'\t\tСодержимое списка "{url_list["name"]}" обновлено.')
                     else:
-                        print(f'\tСписок "{url_list["name"]}" пуст.')
+                        print(f'\t\tСписок "{url_list["name"]}" пуст.')
             else:
                 print("\033[33m\tНет списков URL для импорта.\033[0m")
         else:
