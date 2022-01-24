@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Версия 0.6
+# Версия 1.0
 # программа предназначена для переноса конфигурации с CheckPoint на NGFW версии 6.
 #
 
@@ -517,23 +517,6 @@ def convert_application_rule(cp, objects):
             item['apps'] = []
             item['url_categories'] = []
             item['urls'] = []
-#            source = []
-#            for uid in item['source']:
-#                if 'type' in objects[uid]:
-#                    if objects[uid]['type'] not in ('CpmiClusterMember', 'simple-cluster'):
-#                        source.append(objects[uid])
-#                else:
-#                    source.append(objects[uid])
-#            item['source'] = source
-#            destination = []
-#            for uid in item['destination']:
-#                if 'type' in objects[uid]:
-#                    if objects[uid]['type'] not in ('CpmiClusterMember', 'simple-cluster'):
-#                        destination.append(objects[uid])
-#                else:
-#                    destination.append(objects[uid])
-#            item['destination'] = destination
-
             item['service'] = [objects[uid] for uid in item['service'] if objects[uid] != 'Any']
             apps_set = set()
             l7category_set = set()
@@ -655,6 +638,110 @@ def convert_access_rule_2(rule_count, objects):
         os.makedirs('data_ug/network_policies')
     with open("data_ug/network_policies/config_firewall_rules-2.json", "w") as fh:
         json.dump(fw_rules, fh, indent=4, ensure_ascii=False)
+    print('\033[32mOk!\033[0m')
+
+def convert_content_rule(objects):
+    """
+    Создание правил КФ из правил Application_and_URL-Management CheckPoint.
+    """
+    print('Конвертация правил контентной фильтации...', end = ' - ')
+    file_name = "data_cp/Application_rules.json"
+
+    with open("data_ug/library/ip_list.json", "r") as fh:
+        ip_list = {x['name']: ipaddress.ip_interface(x['content'][0]['value'].partition('-')[0]).ip for x in json.load(fh)}
+    private_ips = (ipaddress.ip_network('10.0.0.0/8'), ipaddress.ip_network('172.16.0.0/12'), ipaddress.ip_network('192.168.0.0/16'))
+
+    with open(f"{file_name}", "r") as fh:
+        data = json.load(fh)
+
+    kf_rules = []
+    rule_number = 0
+    for item in data:
+        if (item['type'] == 'access-rule') and (item['url_categories'] or item['urls']):
+            if item['name'] == 'Cleanup rule':
+                continue
+            rule_number += 1
+            item['content'] = [objects[uid] for uid in item['content'] if objects[uid] != 'Any']
+            item['source'] = [objects[uid] for uid in item['source'] if objects[uid] != 'Any']
+            item['destination'] = [objects[uid] for uid in item['destination'] if objects[uid] != 'Any']
+            rule = {
+                'position': rule_number,
+                'action': objects[item['action']],
+                'name': item['name'],
+                'public_name': '',
+                'description': item['comments'],
+                'enabled': False,
+                'enable_custom_redirect': False,
+                'blockpage_template_id': -1,
+                'users': [],
+                'url_categories': item['url_categories'],
+                'src_zones': [],
+                'dst_zones': [],
+                'src_ips': [],
+                'dst_ips': [],
+                'morph_categories': [],
+                'urls': item['urls'],
+                'referers': [],
+                'user_agents': [],
+                'time_restrictions': [],
+                'active': True,
+                'content_types': [],
+                'http_methods': [],
+                'custom_redirect': '',
+                'src_zones_negate': False,
+                'dst_zones_negate': False,
+                'src_ips_negate': item['source-negate'],
+                'dst_ips_negate': item['destination-negate'],
+                'url_categories_negate': item['service-negate'],
+                'urls_negate': item['service-negate'],
+                'content_types_negate': item['content-negate'],
+                'user_agents_negate': False,
+                'enable_kav_check': False,
+                'enable_md5_check': False,
+                'rule_log': True if True in item['track'].values() else False,
+                'scenario_rule_id': False,
+            }
+            tmp_ips_set = set()
+            tmp_zones_set = set()
+            for src in item['source']:
+                if 'networks' in src:
+                    tmp_ips_set.update(set(x['ip-list'] for x in src['networks']))
+                    rule['users'].extend(src['users'])
+                elif 'ip-list' in src:
+                    tmp_ips_set.add(src['ip-list'])
+                else:
+                    tmp_zones_set.add('Management')
+            rule['src_ips'] = [['list_id', x] for x in tmp_ips_set]
+            rule['src_zones'] = [x for x in tmp_zones_set]
+            tmp_ips_set.clear()
+            tmp_zones_set.clear()
+            for dst in item['destination']:
+                if 'ip-list' in dst:
+                    tmp_ips_set.add(dst['ip-list'])
+                else:
+                    tmp_zones_set.add('Management')
+            rule['dst_ips'] = [['list_id', x] for x in tmp_ips_set]
+            rule['dst_zones'] = [x for x in tmp_zones_set]
+
+            if rule['src_ips']:
+                ip = ip_list[rule['src_ips'][0][1]]
+                if any(ip in network for network in private_ips):
+                    rule['src_zones'].append('Trusted')
+                else:
+                    rule['src_zones'].append('Untrusted')
+            if rule['dst_ips']:
+                ip = ip_list[rule['dst_ips'][0][1]]
+                if any(ip in network for network in private_ips):
+                    rule['dst_zones'].append('Trusted')
+                else:
+                    rule['dst_zones'].append('Untrusted')
+
+            kf_rules.append(rule)
+
+    if not os.path.isdir('data_ug/security_policies'):
+        os.makedirs('data_ug/security_policies')
+    with open("data_ug/security_policies/config_content_rules.json", "w") as fh:
+        json.dump(kf_rules, fh, indent=4, ensure_ascii=False)
     print('\033[32mOk!\033[0m')
 
 
@@ -1120,6 +1207,9 @@ def import_firewall_rules(number, file_rules, utm):
 
     firewall_rules = utm.get_firewall_rules()
     services_list = utm.get_services_list()
+    l7_categories = utm.get_l7_categories()
+    applicationgroup = utm.get_nlists_list('applicationgroup')
+    l7_apps = utm.get_l7_apps()
     zones = utm.get_zones_list()
     list_ip = utm.get_nlists_list('network')
     list_users = utm.get_users_list()
@@ -1134,9 +1224,14 @@ def import_firewall_rules(number, file_rules, utm):
         except KeyError as err:
             print(f'\t\033[33mНе найден сервис {err} для правила "{item["name"]}".\n\tЗагрузите сервисы и повторите попытку.\033[0m')
             item['services'] = []
+        try:
+            set_apps(item['apps'], l7_categories, applicationgroup, l7_apps)
+        except KeyError as err:
+            print(f'\t\033[33mНе найдено приложение {err} для правила "{item["name"]}".\n\tЗагрузите сервисы и повторите попытку.\033[0m')
+            item['apps'] = []
 
         if item['name'] in firewall_rules:
-            print(f'Правило МЭ "{item["name"]}" уже существует', end= ' - ')
+            print(f'\tПравило МЭ "{item["name"]}" уже существует', end= ' - ')
             err1, result1 = utm.update_firewall_rule(firewall_rules[item['name']], item)
             if err1 != 0:
                 print("\n", f"\033[31m{result1}\033[0m")
@@ -1149,6 +1244,56 @@ def import_firewall_rules(number, file_rules, utm):
             else:
                 firewall_rules[item["name"]] = result
                 print(f'\tПравило МЭ "{item["name"]}" добавлено.')
+
+def import_content_rules(utm):
+    """Импортировать список правил фильтрации контента"""
+    print('Импорт списка "Фильтрация контента" раздела "Политики безопасности":')
+    try:
+        with open("data_ug/security_policies/config_content_rules.json", "r") as fh:
+            data = json.load(fh)
+    except FileNotFoundError as err:
+        print(f'\t\033[31mСписок "Фильтрация контента" не импортирован!\n\tНе найден файл "data_ug/security_policies/config_content_rules.json" с сохранённой конфигурацией!\033[0;0m')
+        return
+
+    if not data:
+        print("\tНет правил фильтрации контента для импорта.")
+        return
+
+    content_rules = utm.get_content_rules()
+    zones = utm.get_zones_list()
+    list_ip = utm.get_nlists_list('network')
+    list_users = utm.get_users_list()
+    list_groups = utm.get_groups_list()
+    list_url = utm.get_nlists_list('url')
+    list_urlcategorygroup = utm.get_nlists_list('urlcategorygroup')
+    url_category = utm.get_url_category()
+    list_mime = utm.get_nlists_list('mime')
+
+    for item in data:
+        get_guids_users_and_groups(utm, item, list_users, list_groups)
+        set_src_zone_and_ips(item, zones, list_ip)
+        set_dst_zone_and_ips(item, zones, list_ip)
+        set_urls_and_categories(item, list_url, list_urlcategorygroup, url_category)
+        try:
+            item['content_types'] = [list_mime[x] for x in item['content_types']]
+        except KeyError as err:
+            print(f'\t\033[33mНе найден тип контента {err} для правила "{item["name"]}".\n\tЗагрузите список типов контента и повторите попытку.\033[0m')
+            item['content_types'] = []
+
+        if item['name'] in content_rules:
+            print(f'\tПравило "{item["name"]}" уже существует', end= ' - ')
+            err1, result1 = utm.update_content_rule(content_rules[item['name']], item)
+            if err1 == 2:
+                print("\n", f"\033[31m{result1}\033[0m")
+            else:
+                print("\033[32mUpdated!\033[0;0m")
+        else:
+            err, result = utm.add_content_rule(item)
+            if err == 2:
+                print(f"\033[31m{result}\033[0m")
+            else:
+                content_rules[item['name']] = result
+                print(f'\tПравило "{item["name"]}" добавлено.')
 
 def set_src_zone_and_ips(item, zones, list_ip={}, list_url={}):
     if item['src_zones']:
@@ -1229,6 +1374,48 @@ def get_guids_users_and_groups(utm, item, list_users, list_groups):
     else:
         item['users'] = []
 
+def set_apps(array_apps, l7_categories, applicationgroup, l7_apps):
+    """Определяем ID приложения по имени при импорте"""
+    for app in array_apps:
+        if app[0] == 'ro_group':
+            if app[1] == 0:
+                app[1] = "All"
+            elif app[1] == "All":
+                app[1] = 0
+            else:
+                try:
+                    app[1] = l7_categories[app[1]]
+                except KeyError as err:
+                    print(f'\t\033[33mНе найдена категория l7 №{err}.\n\tВозможно нет лицензии, и UTM не получил список категорий l7.\n\tУстановите лицензию и повторите попытку.\033[0m')
+        elif app[0] == 'group':
+            try:
+                app[1] = applicationgroup[app[1]]
+            except KeyError as err:
+                print(f'\t\033[33mНе найдена группа приложений №{err}.\n\tЗагрузите приложения и повторите попытку.\033[0m')
+        elif app[0] == 'app':
+            try:
+                app[1] = l7_apps[app[1]]
+            except KeyError as err:
+                print(f'\t\033[33mНе найдено приложение №{err}.\n\tВозможно нет лицензии, и UTM не получил список приложений l7.\n\tЗагрузите приложения или установите лицензию и повторите попытку.\033[0m')
+
+def set_urls_and_categories(item, list_url, list_urlcategorygroup, url_category):
+    if item['urls']:
+        try:
+            item['urls'] = [list_url[x] for x in item['urls']]
+        except KeyError as err:
+            print(f'\t\033[33mНе найден URL {err} для правила "{item["name"]}".\n\tЗагрузите списки URL и повторите попытку.\033[0m')
+            item['urls'] = []
+    if item['url_categories']:
+        try:
+            for x in item['url_categories']:
+                if x[0] == 'list_id':
+                    x[1] = list_urlcategorygroup[x[1]]
+                elif x[0] == 'category_id':
+                    x[1] = url_category[x[1]]
+        except KeyError as err:
+            print(f'\t\033[33mНе найдена группа URL-категорий {err} для правила "{item["name"]}".\n\tЗагрузите категории URL и повторите попытку.\033[0m')
+            item['url_categories'] = []
+
 def menu1():
     print("\033c")
     print(f"\033[1;36;43mUserGate\033[1;37;43m                  Конвертация конфигурации с CheckPoint на NGFW                 \033[1;36;43mUserGate\033[0m\n")
@@ -1285,6 +1472,7 @@ def main():
                     convert_routes()
                     rule_count = convert_access_rule_1(cp, objects)
                     convert_access_rule_2(rule_count, objects)
+                    convert_content_rule(objects)
                 except json.JSONDecodeError as err:
                     print(f'\n\033[31mОшибка парсинга конфигурации: {err}\033[0m')
                     sys.exit(1)
@@ -1312,6 +1500,7 @@ def main():
                     import_virt_routes(utm)
                     import_firewall_rules("1", "config_firewall_rules-1.json", utm)
                     import_firewall_rules("2", "config_firewall_rules-2.json", utm)
+                    import_content_rules(utm)
                 except json.JSONDecodeError as err:
                     print(f'\n\033[31mОшибка парсинга конфигурации: {err}\033[0m')
                     utm.logout()

@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Версия 0.6
+# Версия 1.0
 # Общий класс для работы с xml-rpc
 import sys
 import xmlrpc.client as rpc
@@ -82,8 +82,17 @@ class UTM:
             sys.exit(1)
         return {x['name']: x['id'] for x in result['items']}
 
+    def get_l7_categories(self):
+        """Получить список {name: id} категорий приложений l7"""
+        try:
+            result = self._server.v2.core.get.l7categories(self._auth_token, 0, 10000, '')
+        except rpc.Fault as err:
+            print(f"Ошибка get_l7_categories: [{err.faultCode}] — {err.faultString}")
+            sys.exit(1)
+        return {x['name']: x['id'] for x in result['items']}
+
     def get_nlists_list(self, list_type):
-        """Получить словарь {name: id} списков URL"""
+        """Получить словарь {name: id} списков URL, applicationgroup, network и т.д."""
         try:
             result = self._server.v2.nlists.list(self._auth_token, list_type, 0, 5000, {})
         except rpc.Fault as err:
@@ -474,7 +483,7 @@ class UTM:
         except rpc.Fault as err:
             print(f"\tОшибка utm.get_content_rules: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
-        return len(result['items']), result['items']
+        return {x['name']: x['id'] for x in result['items']}
 
     def add_content_rule(self, rule):
         """Добавить новое правило фильтрации контента"""
