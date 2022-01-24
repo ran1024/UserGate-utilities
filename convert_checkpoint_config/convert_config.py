@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Версия 0.5
+# Версия 0.6
 # программа предназначена для переноса конфигурации с CheckPoint на NGFW версии 6.
 #
 
@@ -321,7 +321,7 @@ def convert_application_group(objects):
                             'content': [{'name': x} for x in url_category]
                         }
                     )
-                    value['url_categories'].append(['category_id', value['name']])
+                    value['url_categories'].append(['list_id', value['name']])
                 value['urls'] = [x for x in url_list]
         except KeyError:
             pass
@@ -391,10 +391,11 @@ def convert_other(objects):
             pass
     print('\033[32mOk!\033[0m')
 
-def convert_access_rule(cp, objects):
+def convert_access_rule_1(cp, objects):
     """
+    Создание правил МЭ из правил Firewall-Management CheckPoint.
     """
-    print('Конвертация access rule...', end = ' - ')
+    print('Конвертация access rule-1...', end = ' - ')
     file_name = "data_cp/Firewall-Management server_pp.json"
     if cp == 'Main_4600':
         file_name = f"data_cp/{cp} Firewall-Management server_pp.json"
@@ -412,7 +413,6 @@ def convert_access_rule(cp, objects):
             if item['name'] == 'Cleanup rule':
                 continue
             item['content'] = [objects[uid] for uid in item['content'] if objects[uid] != 'Any']
-#            item['vpn'] = [objects[uid] for uid in item['vpn']]# if objects[uid] != 'Any']
             item['source'] = [objects[uid] for uid in item['source'] if objects[uid] != 'Any']
             item['destination'] = [objects[uid] for uid in item['destination'] if objects[uid] != 'Any']
             rule = {
@@ -483,9 +483,180 @@ def convert_access_rule(cp, objects):
 
     if not os.path.isdir('data_ug/network_policies'):
         os.makedirs('data_ug/network_policies')
-    with open("data_ug/network_policies/config_firewall_rules.json", "w") as fh:
+    with open("data_ug/network_policies/config_firewall_rules-1.json", "w") as fh:
         json.dump(fw_rules, fh, indent=4, ensure_ascii=False)
     print('\033[32mOk!\033[0m')
+    return len(fw_rules)
+
+def convert_application_rule(cp, objects):
+    """
+    Разделение Application_and_URL-Management на правила МЭ и КФ.
+    """
+    print('Конвертация правил Application_and_URL-Management...', end = ' - ')
+    file_name = "data_cp/Application_and_URL-Management server_pp.json"
+    if cp == 'Main_4600':
+        file_name = f"data_cp/{cp} Application_and_URL-Management server_pp.json"
+
+    with open(f"{file_name}", "r") as fh:
+        data = json.load(fh)
+
+    for item in data:
+        if item['type'] == 'access-rule':
+            # удалить потом -------------------
+            item.pop('custom-fields', None)
+            item.pop('action-settings', None)
+            item.pop('install-on', None)
+            item.pop('time', None)
+            item.pop('domain', None)
+            item.pop('vpn', None)
+            item.pop('uid', None)
+            item.pop('meta-info', None)
+            item.pop('user-check', None)
+            #-----------------------------------
+            item['services'] = []
+            item['apps'] = []
+            item['url_categories'] = []
+            item['urls'] = []
+#            source = []
+#            for uid in item['source']:
+#                if 'type' in objects[uid]:
+#                    if objects[uid]['type'] not in ('CpmiClusterMember', 'simple-cluster'):
+#                        source.append(objects[uid])
+#                else:
+#                    source.append(objects[uid])
+#            item['source'] = source
+#            destination = []
+#            for uid in item['destination']:
+#                if 'type' in objects[uid]:
+#                    if objects[uid]['type'] not in ('CpmiClusterMember', 'simple-cluster'):
+#                        destination.append(objects[uid])
+#                else:
+#                    destination.append(objects[uid])
+#            item['destination'] = destination
+
+            item['service'] = [objects[uid] for uid in item['service'] if objects[uid] != 'Any']
+            apps_set = set()
+            l7category_set = set()
+            for service in item['service']:
+                if 'services' in service:
+                    item['services'].append(service['services'])
+                elif service['type'] == 'apps_group':
+                    item['apps'].extend(service['apps'])
+                    item['url_categories'].extend(service['url_categories'])
+                    item['urls'].extend(service['urls'])
+                elif service['type'] == 'l7_category':
+                    l7category_set.add(service['name'])
+                elif service['type'] == 'l7apps':
+                    tmp_set = set({x for x in service['name']})
+                    apps_set.update(tmp_set)
+                elif service['type'] == 'url-list':
+                    item['urls'].append(service['name'])
+                elif service['type'] == 'url_category':
+                    item['url_categories'].append(['category_id', service['name']])
+            
+            item['services'] = list({x for x in item['services']})
+            item['apps'].extend([['ro_group', x] for x in l7category_set])
+            item['apps'].extend([['app', x] for x in apps_set])
+            
+    with open("data_cp/Application_rules.json", "w") as fh:
+        json.dump(data, fh, indent=4, ensure_ascii=False)
+    print('\033[32mOk!\033[0m')
+
+def convert_access_rule_2(rule_count, objects):
+    """
+    Создание правил МЭ из правил Application_and_URL-Management CheckPoint.
+    """
+    print('Конвертация access rule-2...', end = ' - ')
+    file_name = "data_cp/Application_rules.json"
+
+    with open("data_ug/library/ip_list.json", "r") as fh:
+        ip_list = {x['name']: ipaddress.ip_interface(x['content'][0]['value'].partition('-')[0]).ip for x in json.load(fh)}
+    private_ips = (ipaddress.ip_network('10.0.0.0/8'), ipaddress.ip_network('172.16.0.0/12'), ipaddress.ip_network('192.168.0.0/16'))
+
+    with open(f"{file_name}", "r") as fh:
+        data = json.load(fh)
+
+    fw_rules = []
+    for item in data:
+        if (item['type'] == 'access-rule') and (item['services'] or item['apps']):
+            if item['name'] == 'Cleanup rule':
+                continue
+            rule_count += 1
+            item['content'] = [objects[uid] for uid in item['content'] if objects[uid] != 'Any']
+            item['source'] = [objects[uid] for uid in item['source'] if objects[uid] != 'Any']
+            item['destination'] = [objects[uid] for uid in item['destination'] if objects[uid] != 'Any']
+            rule = {
+                'name': item['name'],
+                'description': item['comments'],
+                'action': objects[item['action']],
+                'position': rule_count,
+                'scenario_rule_id': False,
+                'src_zones': [],
+                'src_ips': [],
+                'dst_zones': [],
+                'dst_ips': [],
+                'services': item['services'],
+                'apps': item['apps'],
+                'users': [],
+                'enabled': False,
+                'limit': True,
+                'lmit_value': '3/h',
+                'lmit_burst': 5,
+                'log': True if True in item['track'].values() else False,
+                'log_session_start': True if True in item['track'].values() else False,
+                'src_zones_negate': False,
+                'dst_zones_negate': False,
+                'src_ips_negate': item['source-negate'],
+                'dst_ips_negate': item['destination-negate'],
+                'services_negate': item['service-negate'],
+                'apps_negate': item['content-negate'],
+                'fragmented': 'ignore',
+                'time_restrictions': [],
+                'send_host_icmp': '',
+            }
+            tmp_ips_set = set()
+            tmp_zones_set = set()
+            for src in item['source']:
+                if 'networks' in src:
+                    tmp_ips_set.update(set(x['ip-list'] for x in src['networks']))
+                    rule['users'].extend(src['users'])
+                elif 'ip-list' in src:
+                    tmp_ips_set.add(src['ip-list'])
+                else:
+                    tmp_zones_set.add('Management')
+            rule['src_ips'] = [['list_id', x] for x in tmp_ips_set]
+            rule['src_zones'] = [x for x in tmp_zones_set]
+            tmp_ips_set.clear()
+            tmp_zones_set.clear()
+            for dst in item['destination']:
+                if 'ip-list' in dst:
+                    tmp_ips_set.add(dst['ip-list'])
+                else:
+                    tmp_zones_set.add('Management')
+            rule['dst_ips'] = [['list_id', x] for x in tmp_ips_set]
+            rule['dst_zones'] = [x for x in tmp_zones_set]
+
+            if rule['src_ips']:
+                ip = ip_list[rule['src_ips'][0][1]]
+                if any(ip in network for network in private_ips):
+                    rule['src_zones'].append('Trusted')
+                else:
+                    rule['src_zones'].append('Untrusted')
+            if rule['dst_ips']:
+                ip = ip_list[rule['dst_ips'][0][1]]
+                if any(ip in network for network in private_ips):
+                    rule['dst_zones'].append('Trusted')
+                else:
+                    rule['dst_zones'].append('Untrusted')
+
+            fw_rules.append(rule)
+
+    if not os.path.isdir('data_ug/network_policies'):
+        os.makedirs('data_ug/network_policies')
+    with open("data_ug/network_policies/config_firewall_rules-2.json", "w") as fh:
+        json.dump(fw_rules, fh, indent=4, ensure_ascii=False)
+    print('\033[32mOk!\033[0m')
+
 
 def convert_interfaces():
     """
@@ -837,7 +1008,7 @@ def import_interfaces(utm):
         with open("data_ug/network/config_interfaces.json", "r") as fh:
             data = json.load(fh)
     except FileNotFoundError as err:
-        print(f'\t\033[31mСписок "Интерфейсы" не импортированы!\n\tНе найден файл "data/network/config_interfaces.json" с сохранённой конфигурацией!\033[0;0m')
+        print(f'\t\033[31mСписок "Интерфейсы" не импортированы!\n\tНе найден файл "data_ug/network/config_interfaces.json" с сохранённой конфигурацией!\033[0;0m')
         return
 
     management_port = ''
@@ -933,18 +1104,18 @@ def import_virt_routes(utm):
             else:
                 print(f'\tСоздан виртуальный маршрутизатор "{item["name"]}".')
 
-def import_firewall_rules(utm):
+def import_firewall_rules(number, file_rules, utm):
     """Импортировать список правил межсетевого экрана"""
-    print('Импорт списка "Межсетевой экран" раздела "Политики сети":')
+    print(f'Импорт списка №{number} "Межсетевой экран" раздела "Политики сети":')
     try:
-        with open("data_ug/network_policies/config_firewall_rules.json", "r") as fh:
+        with open(f"data_ug/network_policies/{file_rules}", "r") as fh:
             data = json.load(fh)
     except FileNotFoundError as err:
-        print(f'\t\033[31mСписок "Межсетевой экран" не импортирован!\n\tНе найден файл "data/network_policies/config_firewall_rules.json" с сохранённой конфигурацией!\033[0;0m')
+        print(f'\t\033[31mСписок №{number} "Межсетевой экран" не импортирован!\n\tНе найден файл "data_ug/network_policies/{file_rules}" с сохранённой конфигурацией!\033[0;0m')
         return
 
     if not data:
-        print("\tНет правил межсетевого экрана для импорта.")
+        print("\tНет правил №{number} межсетевого экрана для импорта.")
         return
 
     firewall_rules = utm.get_firewall_rules()
@@ -1107,11 +1278,13 @@ def main():
                     convert_application_group(objects)
                     convert_access_role(objects)
                     convert_other(objects)
+                    convert_application_rule(cp, objects)
                     with open("objects.json", "w") as fh:
                         json.dump(objects, fh, indent=4, ensure_ascii=False)
                     convert_interfaces()
                     convert_routes()
-                    convert_access_rule(cp, objects)
+                    rule_count = convert_access_rule_1(cp, objects)
+                    convert_access_rule_2(rule_count, objects)
                 except json.JSONDecodeError as err:
                     print(f'\n\033[31mОшибка парсинга конфигурации: {err}\033[0m')
                     sys.exit(1)
@@ -1137,7 +1310,8 @@ def main():
                     import_categories_groups(utm)
                     import_interfaces(utm)
                     import_virt_routes(utm)
-                    import_firewall_rules(utm)
+                    import_firewall_rules("1", "config_firewall_rules-1.json", utm)
+                    import_firewall_rules("2", "config_firewall_rules-2.json", utm)
                 except json.JSONDecodeError as err:
                     print(f'\n\033[31mОшибка парсинга конфигурации: {err}\033[0m')
                     utm.logout()
