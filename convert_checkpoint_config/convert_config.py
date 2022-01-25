@@ -1,7 +1,24 @@
 #!/usr/bin/python3
-# Версия 1.0
-# программа предназначена для переноса конфигурации с CheckPoint на NGFW версии 6.
+# Checkpoint_convert_config (convert CheckPoint configuration to NGFW UserGate).
+# Copyright @ 2021-2022 UserGate Corporation. All rights reserved.
+# Author: Aleksei Remnev (ran1024@yandex.ru)
+# License: GPLv3
 #
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, contact the site <https://www.gnu.org/licenses/>.
+#--------------------------------------------------------------------------------------------------- 
+# Программа предназначена для переноса конфигурации с устройств CheckPoint на NGFW UserGate версии 6.
+# Версия 1.0
 
 import os, sys, json
 import stdiomask
@@ -1452,7 +1469,7 @@ def main():
             cp = 'Main_4600'
             if mode == 1:
                 try:
-                    convert_file()
+#                    convert_file()
 
                     with open(f"data_cp/{cp}_objects_pp.json", "r") as fh:
                         data = json.load(fh)
