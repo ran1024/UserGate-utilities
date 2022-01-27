@@ -59,6 +59,7 @@ class UTM(UtmXmlRpc):
 
     def init_struct_for_export(self):
         """Заполнить служебные структуры данных"""
+        trans_table = str.maketrans(character_map)
         try:
             result = self._server.v2.core.get.categories()
             self._categories = {x['id']: x['name'] for x in result}
@@ -73,7 +74,7 @@ class UTM(UtmXmlRpc):
             self.l7_apps = {x['id'] if 'id' in x.keys() else x['app_id']: x['name'] for x in result['items'] if result['count']}
 
             result = self._server.v2.nlists.list(self._auth_token, 'network', 0, 5000, {})
-            self.list_IP = {x['id']: x['name'].replace("/", "_").strip() for x in result['items'] if result['count']}
+            self.list_IP = {x['id']: x['name'].strip().translate(trans_table) for x in result['items'] if result['count']}
 
             result = self._server.v2.nlists.list(self._auth_token, 'mime', 0, 1000, {})
             self.list_mime = {x['id']: x['name'] for x in result['items'] if result['count']}
@@ -2368,7 +2369,7 @@ class UTM(UtmXmlRpc):
             try:
                 self.get_apps(item['apps'])
             except KeyError as err:
-                print(f'\t\033[33mНе найдено приложение {err} для сценария "{item["name"]}".\n\tЗагрузите приложения и повторите попытку.\033[0m')
+                print(f'\t\033[33mНе найдено приложение {err} для правила "{item["name"]}".\n\tЗагрузите приложения и повторите попытку.\033[0m')
                 item['apps'] = []
 
             err, result = self.add_firewall_rule(item)
