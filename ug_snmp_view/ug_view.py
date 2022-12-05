@@ -1,27 +1,35 @@
 #!/usr/bin/python3
-import threading
+#
+# ug_view (simple SNMP viewer for NGFW UserGate), version 2.0.
+#
+# Copyright @ 2020-2022 UserGate Corporation. All rights reserved.
+# Author: Aleksei Remnev <ran1024@yandex.ru>
+# License: GPLv3
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, contact the site <https://www.gnu.org/licenses/>.
+#
+#--------------------------------------------------------------------------------------------------- 
+#
+#import threading
 import PySimpleGUI as sg
-from math import log10, sin
-from time import sleep
-from user_settings import make_settings
-from snmp_query import get_ifnumber, get_ports, get_utm_status, get_port_counter
+from user_settings import make_settings, make_ports, make_graphs
+from snmp_query import get_ports, get_utm_status, get_port_counter, check_snmp, get_all_ports, create_host_rrd, update_host_rrd, create_host_graph, remove_host_graph
 
 
 SETTINGS_PATH = '.'
-state_1 = 0
-state_2 = 0
-utm_data = {
-        'CpuLoad': 0,
-        'MemoryUsed': 0,
-        'LogSpace': 0,
-        'PowerStatus1': '--',
-        'PowerStatus2': '--',
-        'RaidStatus': '--',
-        'VcpuUsage': 0,
-        'VcpuCount': 0,
-        'UsersCounter': 0,
-    }
-ports = {}
+FIRST_INIT = 1
+SETTINGS_UPDATED = 2
 sg.user_settings_filename(path=SETTINGS_PATH)
 
 def get_location():
@@ -30,7 +38,7 @@ def get_location():
     """
     if 'Location' in sg.user_settings():
         arr = sg.user_settings_get_entry('Location')
-        return (arr[0], arr[1]-20)
+        return (arr[0]-5, arr[1]-51)
     else:
         return (150, 130)
 
@@ -42,177 +50,181 @@ def set_location(window):
     if current_location != sg.user_settings_get_entry('Location'):
         sg.user_settings_set_entry('Location', window.CurrentLocation())
 
-def test_network(ind):
-    if ind == -2:
-        sg.PopupError('Ошибка!', 'Network is unreachable.', 'Проверьте сетевое соединение.')
-        exit()
-    elif ind == -1:
-        sg.PopupError('Ошибка!', 'Time out.', 'Устройство не отвечает.')
-
-def init_window(window, utm_data):
-    """
-    Начальная инициализация окна.
-    """
-    window.bind('<Button-3>', '+RIGHT CLICK+')
-    ip = sg.user_settings_get_entry('IP')
-    community = sg.user_settings_get_entry('Community')
-    utm_name = sg.user_settings_get_entry('Name')
-    window['-NAME-'](utm_name)
-    window['-IP-'](ip)
-    update_status(window, utm_data)
-    ports.clear()
-
-    result = get_ports(ip, community, ports)
-    test_network(result)
-    if result == -1:
-        return 1000
-    layout = []
-    for port in ports.values():
-        layout.append(
-            [sg.Text(port.name, size=(10, 1), pad=(6, 0), font=('', 8), background_color=(port.b_color)),
-            sg.ProgressBar(11, orientation='h', size=(19, 12), pad=(0, 0), key=f'-{port.name}-', bar_color=('gray', port.b_color)),
-            sg.Text(size=(11, 1), pad=(4, 0), font=('', 8), key=f'-COUNT{port.name}-', background_color=(port.b_color)),
-            sg.Text('Байт/с', size=(5, 1), pad=(0, 0), font=('', 7), background_color=(port.b_color))]
-        )
-    window.extend_layout(window, layout)
-    result = get_ifnumber(ip, community)
-    if not result or result < 0:
-        sg.PopupError('Ошибка!', 'Устройство не отвечает на SNMP запросы.')
-        return 1000
-    return result
-
-def update_window(if_number, window, utm_data):
-    """
-    Периодически проверяем кол-во интерфейсов и при не совпадении переинициализируем окно.
-    """
-    ip=sg.user_settings_get_entry('IP')
-    community = sg.user_settings_get_entry('Community')
-    new_number = get_ifnumber(ip, community)
-#    test_network(new_number)
-    if new_number == -2:
-        exit()
-    elif new_number != -1:
-        if if_number != new_number:
-            window.close()
-            del window
-            window = make_window()
-            if_number = init_window(window, utm_data)
-    return if_number, window
-
 def make_window():
     sg.theme('Dark')
     sg.SetOptions(
                   progress_meter_color = ('white', '#404040')
                  )
-    layout = [[sg.Text('Имя:', size=(4, 1), font=(22)), sg.Text(size=(14, 1), pad=(0, 0), key='-NAME-', text_color='lightgreen', font=(22)),
-               sg.Text('IP:', font=(22), pad=(7, 0)), sg.Text(size=(15, 1), key='-IP-', text_color='lightgreen', font=(22))],
-              [sg.Text('Загрузка процессора (%):', size=(22, 1)), sg.Text(size=(4, 1), pad=(0, 0), key='-CpuLoad-'),
-               sg.Text('Блок питания-1: ', size=(14, 1)), sg.Text(size=(16, 1), pad=(0, 0), key='-PowerStatus1-')],
-              [sg.Text('Занятая память (%):', size=(22, 1)), sg.Text(size=(4, 1), pad=(0, 0), key='-MemoryUsed-'),
-               sg.Text('Блок питания-2: ', size=(14, 1)), sg.Text(size=(16, 1), pad=(0, 0), key='-PowerStatus2-')],
-              [sg.Text('Журналами занято (%):', size=(22, 1)), sg.Text(size=(4, 1), pad=(0, 0), key='-LogSpace-'),
-               sg.Text('Raid Status: ', ), sg.Text(size=(10, 1), key='-RaidStatus-')],
-              [sg.Text('System vCPU used:', size=(22, 1)), sg.Text(size=(4, 1), pad=(0, 0), key='-VcpuUsage-'),
-               sg.Text('Активные пользователи: ', size=(22, 1)), sg.Text(size=(4, 1), pad=(0, 0), key='-UsersCounter-')],
-              [sg.Text('System vCPU count:', size=(22, 1)), sg.Text(size=(10, 1), pad=(0, 0), key='-VcpuCount-')],
-               [sg.Text('-'*103)]]
+    menu_def = [
+        ['Main', ['Параметры', '!Интерфейсы', '!Графики', '---', 'Exit']],
+    ]
+    left_col1 = [
+        [sg.Text('Имя:', font=(22), pad=(0, (0, 8))), sg.Text(size=(14, 1), pad=(0, (0, 8)), key='-NAME-', text_color='lightgreen', font=(22))],
+        [sg.Text('Загрузка процессора (%):', pad=(0, 2), size=(23, 1)), sg.Text(size=(3, 1), justification='right', pad=(0, 2), key='-CpuLoad-')],
+        [sg.Text('Занятая память (%):', pad=(0, 2), size=(23, 1)), sg.Text(size=(3, 1), justification='right', pad=(0, 2), key='-MemoryUsed-')],
+        [sg.Text('Журналами занято (%):', pad=(0, 2), size=(23, 1)), sg.Text(size=(3, 1), justification='right', pad=(0, 2), key='-LogSpace-')],
+        [sg.Text('Загрузка vCPU (%):', pad=(0, 2), size=(23, 1)), sg.Text(size=(3, 1), justification='right', pad=(0, 2), key='-VcpuUsage-')],
+        [sg.Text('Количество vCPU:', pad=(0, 2), size=(19, 1)), sg.Text(size=(7, 1), justification='right', pad=(0, 2), key='-VcpuCount-')],
+    ]
+    left_col2 = [
+        [sg.Text('IP:', font=(22), pad=(0, (0, 7))), sg.Text(size=(14, 1), pad=(0, (0, 7)), key='-IP-', text_color='lightgreen', font=(22))],
+        [sg.Text('Блок питания-1: ', pad=(0, 2), size=(14, 1)), sg.Text(size=(16, 1), justification='right', pad=(0, 2), key='-PowerStatus1-')],
+        [sg.Text('Блок питания-2: ', pad=(0, 2), size=(14, 1)), sg.Text(size=(16, 1), justification='right', pad=(0, 2), key='-PowerStatus2-')],
+        [sg.Text('Raid Status: ', pad=(0, 2), size=(14, 1)), sg.Text(size=(16, 1), justification='right', pad=(0, 2), key='-RaidStatus-')],
+        [sg.Text('Активные пользователи: ', pad=(0, 2), size=(21, 1)), sg.Text(size=(9, 1), justification='right', pad=(0, 2), key='-UsersCounter-')],
+        [sg.Text(pad=(0, 2))],
+    ]
+    image_col = [[sg.Image(key='-MAIN_IMAGE-', pad=((2, 0), (0, 2)))]]
+    left_col_summ = [
+        [sg.Column(left_col1, pad=(0, 0)), sg.Column(left_col2, pad=((10, 0), 0))],
+        [sg.HSep()],
+    ]
+    layout = [
+        [sg.Menu(menu_def, key='-Menu-')],
+        [sg.Column(left_col_summ, pad=(0, 0)), sg.Column(image_col, pad=(0, 0))],
+        
+    ]
+    return sg.Window(
+        'Состояние UTM',
+        layout, button_color=('Green', 'White'),
+        keep_on_top=True,
+        location=get_location(),
+        finalize=True
+    )
 
-    return sg.Window('Состояние UTM',
-                    layout, button_color=('Green', 'White'),
-                    keep_on_top=True,
-                    location=get_location(),
-                    finalize=True)
-
-def update_status(window, utm_data):
-    window['-CpuLoad-'](utm_data['CpuLoad'])
-    window['-MemoryUsed-'](utm_data['MemoryUsed'])
-    window['-LogSpace-'](utm_data['LogSpace'])
-    window['-VcpuUsage-'](utm_data['VcpuUsage'])
-    window['-VcpuCount-'](utm_data['VcpuCount'])
-    window['-PowerStatus1-'](utm_data['PowerStatus1'])
-    window['-PowerStatus2-'](utm_data['PowerStatus2'])
-    window['-RaidStatus-'](utm_data['RaidStatus'])
-    window['-UsersCounter-'](utm_data['UsersCounter'])
-
-def update_utm_data(utm_data):
-    global state_1
-    while True:
-        ip=sg.user_settings_get_entry('IP')
-        community = sg.user_settings_get_entry('Community')
-        state_1, data = get_utm_status(ip, community)
-        for key in data:
-            utm_data[key] = data[key]
-        sleep(3)
-
-def snmp_requests(ports):
-    global state_2
-    while True:
-        ip=sg.user_settings_get_entry('IP')
-        community = sg.user_settings_get_entry('Community')
-        state_2 = get_port_counter(ip, community, ports)
-        sleep(3)
-
-def update_ports_count(window):
-    global state_1
-    for port in ports.values():
-        value = 1
-        octets_sum = (port.octets_in + port.octets_out) // 3
-        if octets_sum <= 100:
-            bar_value = sin(octets_sum) / 3
-        else:
-            bar_value = log10(octets_sum + 1)
-        window[f'-{port.name}-'].UpdateBar(bar_value)
-        window[f'-COUNT{port.name}-'](octets_sum)
-    if state_1 <= 0:
-        window['-IP-'].update(text_color='red')
-        window['-NAME-'].update(text_color='red')
+def init_window(window):
+    """
+    Начальная инициализация окна.
+    """
+    ports = {}
+    window.bind('<Button-3>', '+RIGHT CLICK+')
+    status = SETTINGS_UPDATED
+    ip = sg.user_settings_get_entry('IP')
+    community = sg.user_settings_get_entry('Community')
+    if not ip or not community:
+        return FIRST_INIT, '', '', {}
     else:
-         window['-IP-'].update(text_color='lightgreen')
-         window['-NAME-'].update(text_color='lightgreen')
+        utm_name = sg.user_settings_get_entry('Name')
+        window['-NAME-'](utm_name)
+        window['-IP-'](ip)
+        status = check_host(ip, community)
+        if status != FIRST_INIT:
+            status, ports = check_ports(ip, community)
+            update_menu(window)
+            update_window(window, ports)
+        return status, ip, community, ports
+
+def update_window(window, ports):
+    graphs_list = [sg.Image(filename=f'data/{port.name}.png', pad=(0, 0), key=f'{port.name}') for port in ports.values()]
+    if len(graphs_list)%2 != 0:
+        graphs_list.append(sg.Text("", visible=False))
+    layout = [[graphs_list[i], graphs_list[i+1]] for i in range(0, len(graphs_list)-1, 2)]
+    window.extend_layout(window, layout)
+
+def update_menu(window):
+    menu_def = [
+        ['Main', ['Параметры', 'Интерфейсы', 'Графики', '---', 'Exit']],
+    ]
+    window['-Menu-'].update(menu_def)
+
+def update_utm_data(window, perf_time):
+    status = SETTINGS_UPDATED
+    ip=sg.user_settings_get_entry('IP')
+    community = sg.user_settings_get_entry('Community')
+    err, data = get_utm_status(ip, community)
+    if not err:
+        update_host_rrd(data.get('CpuLoad', 'U'), data.get('vcpuUsage', 'U'), data.get('MemoryUsed', 'U'))
+        create_host_graph(perf_time)
+        window['-CpuLoad-'](data.get('CpuLoad', '--'))
+        window['-MemoryUsed-'](data.get('MemoryUsed', '--'))
+        window['-LogSpace-'](data.get('LogSpace', '--'))
+        window['-VcpuUsage-'](data.get('vcpuUsage', '--'))
+        window['-VcpuCount-'](data['vcpuCount']*100 if data.get('vcpuCount', False) else '--')
+        window['-PowerStatus1-'](data.get('PowerStatus1', '--'))
+        window['-PowerStatus2-'](data.get('PowerStatus2', '--'))
+        window['-RaidStatus-'](data.get('RaidStatus', '--'))
+        window['-UsersCounter-'](data.get('usersCounter', '--'))
+        window['-MAIN_IMAGE-']('data/main.png')
+    elif err == 3:
+        sg.PopupError(f'Ошибка!', 'В snmp_query.get_utm_status не указаны необходимые события.', keep_on_top=True)
+        status = FIRST_INIT
+    else:
+        sg.PopupError(f'Ошибка ({err})!', f'Устройство не ответило на SNMP запрос.\n{data}', keep_on_top=True)
+        status = FIRST_INIT
+    return status
+
+def check_host(ip, community):
+    status = SETTINGS_UPDATED
+    if check_snmp(ip, community) == 'timeout':
+        sg.PopupError('Ошибка!', 'Данный узел не отвечает на SNMP запросы.', keep_on_top=True,)
+        status = FIRST_INIT
+    else:
+        create_host_rrd()
+    return status
+
+def check_ports(ip, community):
+    status = SETTINGS_UPDATED
+    used_ports = sg.user_settings_get_entry('Ports')
+    trafic_time = sg.user_settings_get_entry('TraficTime')
+    err, ports = get_ports(ip, community, used_ports, trafic_time)
+    if err == 3:
+        sg.PopupError(f'Ошибка!', 'На UTM в настройках SNMP не указано событие:\n"Таблица статистики сетевых интерфейсов"', keep_on_top=True)
+        status = FIRST_INIT
+    elif err != 0:
+        sg.PopupError(f'Ошибка ({err})!', 'Устройство не ответило на SNMP запрос.', keep_on_top=True)
+        status = FIRST_INIT
+    return status, ports
 
 def main():
-    update_counter1 = 0
-    update_counter2 = 0
     window = make_window()
-
-    if not sg.user_settings_get_entry('IP') or not sg.user_settings_get_entry('Community'):
-        set_location(window)
-        status = make_settings()
-        if status == 1:
-            window.close()
-            exit()
-    if_number = init_window(window, utm_data)
-    x = threading.Thread(target=snmp_requests, args=(ports,), daemon=True)
-    y = threading.Thread(target=update_utm_data, args=(utm_data,), daemon=True)
-    x.start()
-    y.start()
-
+    window_status, ip, community, ports = init_window(window)
+    perf_time = sg.user_settings_get_entry('PerformanceTime')
+    trafic_time = sg.user_settings_get_entry('TraficTime')
     while True:
-        event, values = window.read(timeout=50)
+        event, values = window.read(timeout=1000)
         if event in (sg.WINDOW_CLOSED, 'Exit'):
             break
-        elif event == '+RIGHT CLICK+':
-            status = make_settings()
-            if status == 1:
-                break
-            elif status == 2:
+        elif event == 'Параметры':
+            window_status = make_settings()
+            if window_status == SETTINGS_UPDATED:
+                utm_name = sg.user_settings_get_entry('Name')
+                ip = sg.user_settings_get_entry('IP')
+                community = sg.user_settings_get_entry('Community')
+                window['-NAME-'](utm_name)
+                window['-IP-'](ip)
+                update_menu(window)
+                window_status = check_host(ip, community)
+
+        elif event == 'Интерфейсы':
+            all_ports = get_all_ports(ip, community)
+            window_status = make_ports(all_ports)
+            if window_status == SETTINGS_UPDATED:
+                window_status, ports = check_ports(ip, community)
                 window.close()
                 del window
                 window = make_window()
-                if_number = init_window(window, utm_data)
-        set_location(window)
-        # Периодически проверяем кол-во интерфейсов и при не совпадении переинициализируем окно.
-        if update_counter1 >= 200:
-            if update_counter2 >= 250:
-                if_number, window = update_window(if_number, window, utm_data)
-                update_counter1 = 0
-                update_counter2 = 0
-            else:
-                update_counter2 += 1
-        update_counter1 += 1
+                window_status, ip, community, ports = init_window(window)
 
-        update_status(window, utm_data)
-        update_ports_count(window)
+        elif event == 'Графики':
+            window_status = make_graphs()
+            if window_status == SETTINGS_UPDATED:
+                perf_time = sg.user_settings_get_entry('PerformanceTime')
+                trafic_time = sg.user_settings_get_entry('TraficTime')
+                remove_host_graph()
+                for port in ports.values():
+                    port.remove_rrd_graph()
+
+        set_location(window)
+        if window_status != FIRST_INIT:
+            window_status = update_utm_data(window, perf_time)
+
+            if ports:
+                state = get_port_counter(ip, community, ports)
+
+        for port in ports.values():
+            port.create_rrd_graph(trafic_time)
+            window[port.name](f'data/{port.name}.png')
+
     window.close()
 
 if __name__ == '__main__':
