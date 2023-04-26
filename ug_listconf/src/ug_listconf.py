@@ -4,10 +4,11 @@
 # Работаетв версии 5 и 6.
 # Файл отчёта создаётся в директории программы.
 # 
-# Версия 0.7
+# Версия 0.10
 
 import stdiomask
 from prettytable import PrettyTable
+from tqdm import tqdm
 from utm import UtmXmlRpc, UtmError
 
 
@@ -966,35 +967,36 @@ class UTM(UtmXmlRpc):
 
         total, data = self.get_dns_rules_list()
         if total:
+            array.append(f"\nПравила DNS в DNS-прокси ({total}):\n")
+            x = PrettyTable()
+            x.field_names = ['Название', 'Описание', 'Включёно', 'Домены', 'Серверы DNS']
             for item in data:
-                array.append(f"\nПравила DNS в DNS-прокси ({total}):\n")
-                x = PrettyTable()
-                x.field_names = ['Название', 'Описание', 'Включёно', 'Домены', 'Серверы DNS']
                 x.add_row([
                     item['name'],
                     item['description'],
                     item['enabled'],
-                    item['domains'],
-                    item['dns_servers']
+                    ", ".join(y for y in item['domains']),
+                    ", ".join(y for y in item['dns_servers'])
                 ])
-                array.append(x.get_string())
-                array.append("\n")
+            array.append(x.get_string())
+            array.append("\n")
 
         total, data = self.get_dns_static_list()
         if total:
+            array.append(f"\nСтатические записи DNS в DNS-прокси ({total}):\n")
+            x = PrettyTable()
+            x.field_names = ['Название', 'Описание', 'Включёно', 'Домен', 'IP-адреса']
             for item in data:
-                array.append(f"\nСтатические записи DNS в DNS-прокси ({total}):\n")
-                x = PrettyTable()
-                x.field_names = ['Название', 'Описание', 'Включёно', 'Домен', 'IP-адреса']
                 x.add_row([
                     item['name'],
                     item['description'],
                     item['enabled'],
                     item['domain_name'],
-                    item['ip_addresses']
+                    ", ".join(y for y in item['ip_addresses'])
                 ])
-                array.append(x.get_string())
-                array.append("\n")
+            array.append(x.get_string())
+            array.append("\n")
+
         return 0, array
 
     def export_wccp(self):
@@ -2891,7 +2893,7 @@ class UTM(UtmXmlRpc):
                 "Включено:       ДА" if item['enabled'] else "Включено:       НЕТ",
                 f"Действие:       {action.get(item['action'], 'Error')}",
                 f"Профиль DoS:    {self.list_dos_profiles[item['dos_profile']]}",
-                f"Сценарий:       {self._scenarios[item['scenario_rule_id']]}",
+                f"Сценарий:       {self._scenarios.get(item['scenario_rule_id'], ' - ')}",
                 "Журналирование: Включено" if item['log'] else "Журналирование: Выключено",
             ]
             x.add_row([
@@ -2997,6 +2999,7 @@ def main():
         server_ip = input("Введите IP-адрес UTM: ")
         login = input("Введите логин: ")
         password = stdiomask.getpass("Введите пароль: ")
+        print()
 
         utm = UTM(server_ip, login, password)
         file_name = f"config_{server_ip.translate(character_map)}.txt"
@@ -3004,56 +3007,57 @@ def main():
         separator = "\n" + "="*133 + "\n"
         route_text = 'Сеть: Виртуальные маршрутизаторы' if utm.version.startswith('6') else 'Сеть: Маршруты'
         dict_func = {
-            'UserGate: Администраторы UTM': utm.export_admins(),
-            'Глобальные опции аутентификации для Администраторов UTM': utm.export_auth_options(),
-            'Библиотеки: Морфология': utm.export_morphology_list(),
-            'Библиотеки: Список сервисов': utm.export_services_list(),
-            'Библиотеки: Списки IP адресов': utm.export_named_list('network', 'IP адреса'),
-            'Библиотеки: Useragent браузеров': utm.export_useragent_list(),
-            'Библиотеки: Типы контента': utm.export_mime_list(),
-            'Библиотеки: Списки URL': utm.export_named_list('url', 'URL'),
-            'Библиотеки: Календари': utm.export_time_restricted_list(),
-            'Библиотеки: Полосы пропускания': utm.export_shaper_list(),
-            'Библиотеки: Профили АСУ ТП': utm.export_scada_profiles_list(),
-            'Библиотеки: Шаблоны страниц': utm.export_templates_list(),
-            'Библиотеки: Категории URL': utm.export_urlcategory_group_list(),
-            'Библиотеки: Список Приложений (пользовательские категории)': utm.export_named_list('applicationgroup', 'Приложение'),
-            'Библиотеки: Почтовые адреса': utm.export_emailgroup_list(),
-            'Библиотеки: Профили оповещения': utm.export_notification_profiles(),
-            'Библиотеки: Профили SSL': utm.export_ssl_profiles(),
-            'Сеть: Зоны': utm.export_zones(),
-            'Сеть: Интерфейсы': utm.export_interfaces(),
-            'Сеть: Шлюзы': utm.export_gateways(),
-            'Сеть: Подсети DHCP': utm.export_dhcp_subnets(),
-            'Сеть: Настройки DNS': utm.export_dns(),
-            'Сеть: Настройки WCCP': utm.export_wccp(),
-            route_text: utm.export_routers(),
-            'Пользователи и устройства: Локальные группы': utm.export_groups(),
-            'Пользователи и устройства: Локальные пользователи': utm.export_users(),
-            'Пользователи и устройства: Серверы авторизации': utm.export_auth_servers(),
-            'Пользователи и устройства: Профили MFA': utm.export_2fa_profiles(),
-            'Пользователи и устройства: Профили авторизации': utm.export_auth_profiles(),
-            'Пользователи и устройства: Captive-профили': utm.export_captive_profiles(),
-            'Пользователи и устройства: Captive-портал': utm.export_captive_portal(),
-            'Пользователи и устройства: Политики BYOD': utm.export_byod_policy(),
-            'Политики сети: Межсетевой экран': utm.export_firewall_rules(),
-            'Политики сети: NAT и маршрутизация': utm.export_traffic_rules(),
-            'Политики безопасности: ICAP-серверы': utm.export_icap_servers_list(),
-            'Глобальный портал: Серверы reverse-прокси': utm.export_reverseproxy_servers_list(),
-            'Политики сети: Балансировка нагрузки': utm.export_loadbalancing_rules(),
-            'Политики сети: Пропускная способность': utm.export_shaper_rules_list(),
-            'Политики безопасности: Фильтрация контента': utm.export_content_rules_list(),
-            'Политики безопасности: Веб-безопасность': utm.export_safebrowing_rules_list(),
-            'Политики безопасности: Инспектирование SSL': utm.export_sslderypt_rules_list(),
-            'Политики безопасности: Инспектирование SSH': utm.export_sshderypt_rules_list(),
-            'Политики безопасности: СОВ': utm.export_idps_rules_list(),
-            'Политики безопасности: Правила АСУ ТП': utm.export_scada_rules_list(),
-            'Политики безопасности: Сценарии': utm.export_scenarios_rules_list(),
-            'Политики безопасности: Защита почтового трафика': utm.export_mailsecurity_rules_list(),
-            'Политики безопасности: ICAP-правила': utm.export_icap_rules_list(),
-            'Политики безопасности: Профили DoS': utm.export_dos_profiles(),
-            'Политики безопасности: Правила защиты DoS': utm.export_dos_rules_list(),
+            'UserGate: Администраторы UTM': utm.export_admins,
+            'Глобальные опции аутентификации для Администраторов UTM': utm.export_auth_options,
+            'Библиотеки: Морфология': utm.export_morphology_list,
+            'Библиотеки: Список сервисов': utm.export_services_list,
+            'Библиотеки: Списки IP адресов': (utm.export_named_list, 'network', 'IP адреса'),
+            'Библиотеки: Useragent браузеров': utm.export_useragent_list,
+            'Библиотеки: Типы контента': utm.export_mime_list,
+            'Библиотеки: Списки URL': (utm.export_named_list, 'url', 'URL'),
+            'Библиотеки: Календари': utm.export_time_restricted_list,
+            'Библиотеки: Полосы пропускания': utm.export_shaper_list,
+            'Библиотеки: Профили АСУ ТП': utm.export_scada_profiles_list,
+            'Библиотеки: Шаблоны страниц': utm.export_templates_list,
+            'Библиотеки: Категории URL': utm.export_urlcategory_group_list,
+            'Библиотеки: Список Приложений (пользовательские категории)': (utm.export_named_list, 'applicationgroup', 'Приложение'),
+            'Библиотеки: Почтовые адреса': utm.export_emailgroup_list,
+            'Библиотеки: Профили оповещения': utm.export_notification_profiles,
+            'Библиотеки: Профили SSL': utm.export_ssl_profiles,
+            'Сеть: Зоны': utm.export_zones,
+            'Сеть: Интерфейсы': utm.export_interfaces,
+            'Сеть: Шлюзы': utm.export_gateways,
+            'Сеть: Подсети DHCP': utm.export_dhcp_subnets,
+            'Сеть: Настройки DNS': utm.export_dns,
+            'Сеть: Настройки WCCP': utm.export_wccp,
+            route_text: utm.export_routers,
+            'Пользователи и устройства: Локальные группы': utm.export_groups,
+            'Пользователи и устройства: Локальные пользователи': utm.export_users,
+            'Пользователи и устройства: Серверы авторизации': utm.export_auth_servers,
+            'Пользователи и устройства: Профили MFA': utm.export_2fa_profiles,
+            'Пользователи и устройства: Профили авторизации': utm.export_auth_profiles,
+            'Пользователи и устройства: Captive-профили': utm.export_captive_profiles,
+            'Пользователи и устройства: Captive-портал': utm.export_captive_portal,
+            'Пользователи и устройства: Политики BYOD': utm.export_byod_policy,
+            'Политики сети: Межсетевой экран': utm.export_firewall_rules,
+            'Политики сети: NAT и маршрутизация': utm.export_traffic_rules,
+            'Политики безопасности: ICAP-серверы': utm.export_icap_servers_list,
+            'Глобальный портал: Серверы reverse-прокси': utm.export_reverseproxy_servers_list,
+            'Политики сети: Балансировка нагрузки': utm.export_loadbalancing_rules,
+            'Политики сети: Пропускная способность': utm.export_shaper_rules_list,
+            'Политики безопасности: Фильтрация контента': utm.export_content_rules_list,
+            'Политики безопасности: Веб-безопасность': utm.export_safebrowing_rules_list,
+            'Политики безопасности: Инспектирование SSL': utm.export_sslderypt_rules_list,
+            'Политики безопасности: Инспектирование SSH': utm.export_sshderypt_rules_list,
+            'Политики безопасности: СОВ': utm.export_idps_rules_list,
+            'Политики безопасности: Правила АСУ ТП': utm.export_scada_rules_list,
+            'Политики безопасности: Сценарии': utm.export_scenarios_rules_list,
+            'Политики безопасности: Защита почтового трафика': utm.export_mailsecurity_rules_list,
+            'Политики безопасности: ICAP-правила': utm.export_icap_rules_list,
+            'Политики безопасности: Профили DoS': utm.export_dos_profiles,
+            'Политики безопасности: Правила защиты DoS': utm.export_dos_rules_list,
         }
+
         list_config = open(file_name, 'w')
         try:
             list_config.write(title)
@@ -3063,8 +3067,14 @@ def main():
             list_config.write(utm.export_ntp())
             list_config.write(separator)
 
-            for text, func in dict_func.items():
-                total, data = func
+#            for text, func in dict_func.items():
+            for i, item in enumerate(tqdm(dict_func.items())):
+                text = item[0]
+                tqdm.write(text)
+                if isinstance(item[1], tuple):
+                    total, data = item[1][0](item[1][1], item[1][2])
+                else:
+                    total, data = item[1]()
                 if total:
                     list_config.write(f"\n{text} ({total}):\n")
                 else:
@@ -3075,8 +3085,8 @@ def main():
 
         except UtmError as err:
             print(err)
-        except Exception as err:
-            print(f'\nОшибка: {err} (Node: {server_ip}).')
+#        except Exception as err:
+#            print(f'\nОшибка: {err} (Node: {server_ip}).')
         else:
             print("\nОтчёт сформирован в файле", f"config_{server_ip.translate(character_map)}.txt\n")
         finally:

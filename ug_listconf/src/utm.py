@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # Общий класс для работы с xml-rpc
 #
-# Версия 0.7
+# Версия 0.8
 #################################################################################################
 import sys
 import xmlrpc.client as rpc
@@ -633,32 +633,59 @@ class UtmXmlRpc:
     def get_namedlist_list(self, list_type):
         """Получить содержимое именованных списков раздела Библиотеки"""
         try:
-            result = self._server.v2.nlists.list(self._auth_token, list_type, 0, 1000, {})
-            for item in result['items']:
-                if item['editable']:
-                    contents = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 1000, '', [])
-                    if list_type in ['urlcategorygroup', 'morphology']:
-                        item['content'] = [x for x in contents['items']]
-                    else:
-                        item['contents'] = [x['value'] for x in contents['items']]
+            result = self._server.v2.nlists.list(self._auth_token, list_type, 0, 5000, {})
         except rpc.Fault as err:
-            print(f"Ошибка get_namedlist_list: [{err.faultCode}] — {err.faultString}")
+            print(f"Ошибка-1 get_namedlist_list: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
+
+        for item in result['items']:
+            if item['editable']:
+                try:
+                    if (list_type == 'ipspolicy' and self.version.startswith('5')):
+                        contents = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 5000, {}, [])
+                    elif int(self.version[4:5]) >= 9:
+                        contents = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 5000, {}, [])
+                    else:
+                        contents = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 5000, '', [])
+                except rpc.Fault as err:
+                    print(f"Ошибка: get_namedlist_list: [{err.faultCode}] — {err.faultString}")
+                    print(f'\033[33m\tСодержимое списка "{item["name"]}" не экспортировано. Ошибка загрузки списка!\033[0m')
+                    sys.exit(1)
+                except ExpatError:
+                    print(f'\033[33m\tСодержимое списка "{item["name"]}" не экспортировано. Список corrupted!\033[0m')
+                    sys.exit(1)
+                except UnboundLocalError:
+                    print(f'\033[33m\tСодержимое списка "{item["name"]}" не экспортировано. Ошибка программы!\033[0m')
+                    sys.exit(1)
+                if list_type in ['urlcategorygroup', 'morphology']:
+                    item['content'] = [x for x in contents['items']]
+                else:
+                    item['contents'] = [x['value'] for x in contents['items']]
         return result
 
     def get_time_restrict_list(self):
         """Получить содержимое календарей раздела Библиотеки"""
         try:
-            result = self._server.v2.nlists.list(self._auth_token, 'timerestrictiongroup', 0, 1000, {})
-            for item in result['items']:
-                contents = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 1000, '', [])
-                if self.version.startswith('6'):
-                    item['contents'] = [x for x in contents['items']]
-                else:
-                    item['contents'] = [x['value'] for x in contents['items']]
+            result = self._server.v2.nlists.list(self._auth_token, 'timerestrictiongroup', 0, 5000, {})
         except rpc.Fault as err:
-            print(f"Ошибка get_namedlist_list: [{err.faultCode}] — {err.faultString}")
+            print(f"Ошибка get_time_restrict_list: [{err.faultCode}] — {err.faultString}")
             sys.exit(1)
+
+        for item in result['items']:
+            try:
+                if self.version.startswith('5'):
+                    contents = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 5000, '', [])
+                elif int(self.version[4:5]) >= 9:
+                    contents = self._server.v2.nlists.list.list(self._auth_token, item['id'], 0, 5000, {}, [])
+            except rpc.Fault as err:
+                print(f"Ошибка get_time_restrict_list: [{err.faultCode}] — {err.faultString}")
+                print(f'\033[33m\tСодержимое списка "{item["name"]}" не экспортировано. Ошибка загрузки списка!\033[0m')
+                sys.exit(1)
+
+            if self.version.startswith('6'):
+                item['contents'] = contents['items']
+            else:
+                item['contents'] = [x['value'] for x in contents['items']]
         return result
 
     def get_shaper_list(self):

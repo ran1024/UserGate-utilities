@@ -1,4 +1,29 @@
 #!/usr/bin/python3
+#
+# ug_view_license (Gets the list of IP addresses that hold the NGFW license).
+#
+# Copyright @ 2021-2022 UserGate Corporation. All rights reserved.
+# Author: Aleksei Remnev <ran1024@yandex.ru>
+# License: GPLv3
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, contact the site <https://www.gnu.org/licenses/>.
+#
+#--------------------------------------------------------------------------------------------------- 
+# Версия 1.2
+# Программа выводит число активных коннектов и список IP-адресов, занимающих лицензию.
+# Так же показывает все данные по текущей лицензии.
+#
 import sys, os, socket
 import ipaddress
 import xmlrpc.client as rpc
@@ -50,6 +75,11 @@ def view_active_ips(utm):
     """
     private_ips = (ipaddress.ip_network('10.0.0.0/8'), ipaddress.ip_network('172.16.0.0/12'), ipaddress.ip_network('192.168.0.0/16'))
     list_ips = utm.get_active_ips_list()
+#    list_ips = ['192.168.30.11', '192.168.30.12', '192.168.30.13', '192.168.30.14', '192.168.70.1', '192.168.30.15', '4.4.4.4',
+#        '8.8.8.8', '4.4.8.8', '192.168.30.16', '10.10.10.1', '10.20.1.2', '192.180.56.7', '122.156.15.10', '192.168.70.11',
+#        '8.8.8.7', '4.4.4.1','10.10.10.18', '10.20.1.26', '192.180.66.75', '122.156.16.1', '77.88.55.50',
+#        '10.10.11.10', '10.20.21.25', '192.181.56.75', '122.159.15.1', '192.168.79.1', '8.88.8.8', '4.84.4.4',
+#    ]
     row_ips = []
     row_colors = []
     new_location = [sum(i) for i in zip_longest(sg.user_settings_get_entry('Location'), [36, 100], fillvalue=0)]
@@ -104,6 +134,8 @@ def init_window(window, utm):
     Начальная инициализация окна.
     """
     license = utm.get_license_info()
+    window['-SERVER_IP-'](utm.server_ip)
+    window['-SERVER_NAME-'](utm.node_name)
     window['-PIN_CODE-'](license['pin_code'])
     window['-REG_NAME-'](license['reg_name'])
     window['-USER_NAME-'](license['user_name'])
@@ -127,9 +159,13 @@ def init_window(window, utm):
     window['-ATP-'](modules['atp'] if 'atp' in modules.keys() else 'Нет лицензии')
     window['-MAIL_SEC-'](modules['mailsec'] if 'mailsec' in modules.keys() else 'Нет лицензии')
     window['-KAS-'](modules['kas'] if 'kas' in modules.keys() else 'Нет лицензии')
-    window['-KAV-'](modules['kav'] if 'kav' in modules.keys() else 'Нет лицензии')
     window['-CLUSTER-'](modules['cluster'] if 'cluster' in modules.keys() else 'Нет лицензии')
-    window['-SCADA-'](modules['scada'] if 'scada' in modules.keys() else 'Нет лицензии')
+    if license['version'].startswith('7'):
+        window['-SCADA-'](modules['scada'] if 'scada' in modules.keys() else 'Нет лицензии')
+        window['-PRSUPPORT-'](modules['premiumsupport'] if 'premiumsupport' in modules.keys() else 'Нет лицензии')
+    else:
+        window['-SCADA-'](modules['scada'] if 'scada' in modules.keys() else 'Бессрочная')
+        window['-PRSUPPORT-'](modules['premiumsupport'] if 'premiumsupport' in modules.keys() else 'Не определено')
 
     user_limit = license['user_limit']
     number_ips = utm.get_active_ips_number()
@@ -154,24 +190,26 @@ def make_window():
         [TextKey('Security Update:')],
         [TextKey('ATP:')],
         [TextKey('Mail security:')],
-        [TextKey('UserGate Antispam:')],
-        [TextKey('Kaspersky AntiVirus:')],
+        [TextKey('Потоковый антивирус UserGate:')],
+        [TextKey('Scada:')],
         [TextKey('Cluster:')],
-        [TextKey('Scada:')]
+        [TextKey('Premium Support:')],
     ]
     col2 = [
         [TextValue(key='-SECURITY_UPDATE-')],
         [TextValue(key='-ATP-')],
         [TextValue(key='-MAIL_SEC-')],
         [TextValue(key='-KAS-')],
-        [TextValue(key='-KAV-')],
+        [TextValue(key='-SCADA-')],
         [TextValue(key='-CLUSTER-')],
-        [TextValue(key='-SCADA-')]
+        [TextValue(key='-PRSUPPORT-')],
     ]
     frame_layout = [
         [sg.Column(col1), sg.Column(col2)]
     ]
     tab2_layout = [
+        [TextKey('IP-адрес узла:'), TextValue(key='-SERVER_IP-')],
+        [TextKey('Имя узла:'), TextValue(key='-SERVER_NAME-')],
         [TextKey('Пин код:'), TextValue(key='-PIN_CODE-')],
         [TextKey('Регистрационное имя:'), TextValue(key='-REG_NAME-')],
         [TextKey('Имя:'), TextValue(key='-USER_NAME-')],
@@ -195,7 +233,7 @@ def make_window():
         [sg.Button(visible=False), sg.Button('Обновить'), sg.Button('Сохранить в файл', key='-SAVE-'), sg.Exit()]
 
     ]
-    return sg.Window('Монитор лицензий',
+    return sg.Window('Монитор лицензий v1.2',
                     layout,
                     keep_on_top=True,
                     location=get_location(),
