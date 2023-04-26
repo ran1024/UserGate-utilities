@@ -1,5 +1,6 @@
 # UserGate-utilities
 Различные утилиты для UserGate UTM
+Актуальные версии лежат здесь: https://github.com/usergate
 
 <b>ug_active_ip</b> - Получение списка IP-адресов, занимающих лицензию. Работает в терминале.<br>
 <b>ug_view_license</b> - Получение данные по лицензиям.<br>
